@@ -4,3 +4,4 @@ PyAutoGui
 numpy
 screeninfo
 pillow
+pynput

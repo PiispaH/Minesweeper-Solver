@@ -12,9 +12,21 @@ class MinesweeperUI:
         self._width = width
         self._height = height
 
-    def check_game_status(self) -> bool:
-        """Returns False when game is in lost state."""
-        return pyautogui.pixel(948, 1311) == (0, 0, 0)
+    @property
+    def smiley(self):
+        return 948, 1310
+
+    def check_if_lost(self) -> bool:
+        """Returns True when game is in lost state."""
+        pixel1 = pyautogui.pixel(*self.smiley)
+        pixel2 = pyautogui.pixel(self.smiley[0], self.smiley[1] + 4)
+        return pixel1 == (170, 170, 0) and pixel2 == (0, 0, 0)
+
+    def check_if_won(self) -> bool:
+        """Returns True when game is in won state. (This might be too slow)"""
+        pixel1 = pyautogui.pixel(*self.smiley)
+        pixel2 = pyautogui.pixel(self.smiley[0] + 4, self.smiley[1] + 4)
+        return pixel1 == (170, 170, 0) and pixel2 == (0, 0, 0)
 
     def get_upper_left_cell(self) -> Tuple[int, int]:
         """Gets the coordinates for the center of the upper left cell"""
@@ -26,18 +38,30 @@ class MinesweeperUI:
 
         return x, y
 
-    def click_at_pos(self, x_pos: int, y_pos: int):
+    def click_at_pos(self, x_pos: int, y_pos: int, dur: float = 0.0):
         """Left clicks on the screen at a given point"""
-        pyautogui.leftClick(x_pos, y_pos, duration=0.1)
+        pyautogui.leftClick(x_pos, y_pos, duration=dur)
+
+    def move_to(self, x: int, y: int):
+        pyautogui.moveTo(x, y)
 
     def take_a_screenshot(self):
         """Takes a snapshot of the board state"""
         self._latest_image = pyautogui.screenshot(region=(476, 1358, 32 * self._width, 32 * self._height))
 
     def get_pixel_color(self, i: int, j: int) -> Tuple[int, int, int]:
-        """Returns the oclor of the center of the cell at indexes i, j"""
+        """Returns the color of the center of the cell at indexes i, j"""
         return cast(Tuple[int, int, int], self._latest_image.getpixel((16 + i * 32, 16 + j * 32)))
 
     def get_rim_color(self, i: int, j: int) -> Tuple[int, int, int]:
-        """Returns the oclor of the upper left corner of the cell at indexes i, j"""
+        """Returns the color of the upper left corner of the cell at indexes i, j"""
         return cast(Tuple[int, int, int], self._latest_image.getpixel((2 + i * 32, 2 + j * 32)))
+
+    def get_slight_center_offset_color(self, i: int, j: int) -> Tuple[int, int, int]:
+        """Returns the color of the upper left corner of the cell at indexes i, j"""
+        return cast(Tuple[int, int, int], self._latest_image.getpixel((16 + i * 32, 8 + j * 32)))
+
+    def take_image(self):
+        """Useful for debugging"""
+        s = pyautogui.screenshot(region=(948, 1314, 16, 16))
+        s.save("pic.png")
