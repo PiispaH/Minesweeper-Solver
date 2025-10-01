@@ -158,18 +158,13 @@ class Minefield:
             if COLOR_TO_STATE[color] == CellState.OPENED:  # Could still be both opened or unopened
                 rim_color = COLOR_TO_STATE[self._ms_ui.get_rim_color(i, j)]
                 if rim_color == CellState.OPENED:
-                    # Highly likely empty, but could be a seven.
-                    try:
-                        self.cell_at(i, j).state = COLOR_TO_STATE[self._ms_ui.get_slight_center_offset_color(i, j)]
-                    except KeyError:
-                        print("new color found:")
-                        print(i, j, color)
-                        raise KeyError
+                    # Highly likely empty, but could also be a seven.
+                    self.cell_at(i, j).state = COLOR_TO_STATE[self._ms_ui.get_slight_center_offset_color(i, j)]
                 else:
-                    # Still unopened, so no action is taken
+                    # Is unopened, so no action is taken
                     continue
             else:
-                # Some number was found
+                # A number was found
                 try:
                     self.cell_at(i, j).state = COLOR_TO_STATE[color]
                 except KeyError:
