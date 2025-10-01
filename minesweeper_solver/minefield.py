@@ -151,6 +151,8 @@ class Minefield:
         return self._ul_x + i * self._cell_size, self._ul_y + j * self._cell_size
 
     def _update_cell_status(self) -> Set[Tuple[int, int]]:
+        """Updates the status of each cell that was previously unopened. Returns a set of indices that don't
+        need to be checked anymore"""
         no_need_to_check: Set[Tuple[int, int]] = set()
 
         for i, j in self._unopened:
