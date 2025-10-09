@@ -8,7 +8,7 @@ from .minesweeper_ui import MinesweeperUI
 from random import choice
 
 
-class BaseSolver:
+class SolverBase:
     """Base class for different solvers"""
 
     def __init__(self, minefield: Minefield, ms_ui: MinesweeperUI):
@@ -30,6 +30,7 @@ class BaseSolver:
     def _new_game(self):
         self._minefield.prepare_new_minefield()
         self._ms_ui.click_at_pos(*self._ms_ui.smiley, 1.0)
+        self._open_cell(self._minefield.width // 2, self._minefield.height // 2)
 
     def run(self) -> float:
         """Starts up the solver"""
@@ -79,22 +80,10 @@ class BaseSolver:
         return inds
 
 
-class SolverReinforcementLearning(BaseSolver):
-    """Solver that uses reinforcement learning to solve the game."""
-
-
-class SolverImportExport(BaseSolver):
-    """Solver that imports and exports the gamestate before reading the gamestate to try to cut down the solve time."""
-
-
-class SolverCheater(BaseSolver):
-    """Exports the initial state of the grid. Then finds a mine and reads all the mine locations. Then imports the initial state and wins..."""
-
-
-class SolverNaive(BaseSolver):
+class SolverNaive(SolverBase):
     """Clicks safe cells and if there aren't any, opens the one that is least likely to be a mine.
 
-    Uses a helper grid where 50/50 cases get stored.
+    Uses a helper grid where 50/50 cases get stored. Sometimes misplaces a mine and loses because of that.
     """
 
     def __init__(self, minefield: Minefield, ms_ui: MinesweeperUI):
@@ -264,7 +253,7 @@ class SolverNaive(BaseSolver):
         return time() - start
 
 
-class SolverRandom(BaseSolver):
+class SolverRandom(SolverBase):
 
     def _run(self):
         """Just randomly clicks"""
