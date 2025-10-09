@@ -5,16 +5,21 @@ import screeninfo
 
 
 class MinesweeperUI:
-    """Provides ways to read the state of the game and to interact with it."""
+    """Provides ways to read the state of the game and to interact with it.
+
+    actually might be a lot faster to use the html if fetching that is quicker than taking images.
+    """
 
     def __init__(self, width: int, height: int) -> None:
         self._latest_image: Image | Any = None
         self._width = width
         self._height = height
+        self._screen_reduction = 1080 if len(screeninfo.get_monitors()) == 1 else 0
 
     @property
     def smiley(self):
-        return 948, 1310
+
+        return 948, 1310 - self._screen_reduction
 
     def check_if_lost(self) -> bool:
         """Returns True when game is in lost state."""
@@ -31,10 +36,7 @@ class MinesweeperUI:
     def get_upper_left_cell(self) -> Tuple[int, int]:
         """Gets the coordinates for the center of the upper left cell"""
         x = 476 + 16  # Hardcoded at the moment. Can't use with any other grid sizes
-        y = 1358 + 16
-
-        if len(screeninfo.get_monitors()) == 1:
-            y -= 1080
+        y = 1358 + 16 - self._screen_reduction
 
         return x, y
 
@@ -42,12 +44,15 @@ class MinesweeperUI:
         """Left clicks on the screen at a given point"""
         pyautogui.leftClick(x_pos, y_pos, duration=dur)
 
-    def move_to(self, x: int, y: int):
-        pyautogui.moveTo(x, y)
+    def move_to(self, x: int, y: int, dur: float = 0.0):
+        """Moves the cursor to the given point"""
+        pyautogui.moveTo(x, y, duration=dur)
 
     def take_a_screenshot(self):
         """Takes a snapshot of the board state"""
-        self._latest_image = pyautogui.screenshot(region=(476, 1358, 32 * self._width, 32 * self._height))
+        self._latest_image = pyautogui.screenshot(
+            region=(476, 1358 - self._screen_reduction, 32 * self._width, 32 * self._height)
+        )
 
     def get_pixel_color(self, i: int, j: int) -> Tuple[int, int, int]:
         """Returns the color of the center of the cell at indexes i, j"""
@@ -63,5 +68,5 @@ class MinesweeperUI:
 
     def take_image(self):
         """Useful for debugging"""
-        s = pyautogui.screenshot(region=(948, 1314, 16, 16))
+        s = pyautogui.screenshot(region=(948, 1314 - self._screen_reduction, 16, 16))
         s.save("pic.png")

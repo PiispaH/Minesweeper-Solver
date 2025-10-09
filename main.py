@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 
 import threading
-from time import time
+from time import sleep, time
 from typing import Callable
+import numpy as np
 from pynput import keyboard
 from minesweeper_solver.minefield import Minefield
 from minesweeper_solver.minesweeper_ui import MinesweeperUI
-from minesweeper_solver.solver import SolverRandom
+from minesweeper_solver.solver import SolverNaive, SolverRandom
 
 
 def listener(func: Callable[[], None]):
@@ -23,16 +24,18 @@ def listener(func: Callable[[], None]):
 
 
 def main():
+
     rows = 16
     columns = 30
-    mines = 12
+    mines = 99
 
     ms_ui = MinesweeperUI(columns, rows)
     ul = ms_ui.get_upper_left_cell()
 
     grid = Minefield(ul, rows, columns, mines, ms_ui)
 
-    solver = SolverRandom(grid, ms_ui)
+    # solver = SolverRandom(grid, ms_ui)
+    solver = SolverNaive(grid, ms_ui)
 
     start = time()
     game_time = solver.run()

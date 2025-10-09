@@ -7,8 +7,6 @@ import numpy as np
 from numpy.typing import NDArray
 from .minesweeper_ui import MinesweeperUI
 
-np.set_printoptions(linewidth=200)  # For printing the minefield
-
 
 class CellState(Enum):
     """Enumeration for the possible states of the cells"""
@@ -24,7 +22,10 @@ class CellState(Enum):
     NEAR_7 = 7
     NEAR_8 = 8
     UNOPENED = 9  # This is the lighter rim color, the center is the same as opened
-    BOMB = 10
+    MINE = 10
+
+    def __repr__(self) -> str:
+        return f"{self.name}"
 
 
 COLOR_TO_STATE = {
@@ -78,6 +79,7 @@ class Minefield:
         self._ms_ui = ms_ui
         self._grid = self._init_minefield()
         self._unopened = self._init_unopened_cells()
+        self._numbered_cells = self._init_numbered_cells()
         self._neighbours: Dict[Tuple[int, int], NDArray[Any]] = {}  # The cells surrounding a point
 
     @property
@@ -94,6 +96,10 @@ class Minefield:
         self._grid = self._init_minefield()
         self._unopened = self._init_unopened_cells()
 
+    def mines_left(self):
+        """Returns the amount of mines left in the grid"""
+        return self.mines - sum(1 for i in self._grid.flatten() if i.state == CellState.MINE)
+
     def cell_at(self, i: int, j: int) -> Cell:
         return self._grid[j + 1][i + 1]
 
@@ -105,33 +111,32 @@ class Minefield:
         dont_check = self._update_cell_status()
         self._unopened = self._unopened.difference(dont_check)
 
-    def unopened_near(self, i: int, j: int) -> int:
-        """Returns the amount of unopened cells nearby"""
-        nbs = np.sum([[1 if x.state == CellState.UNOPENED.value else 0 for x in y] for y in self.neighbours(i, j)])
-        nbs -= 1 if self.cell_at(i, j).state == CellState.UNOPENED else 0
-        return nbs
-
-    def bomb_ratio(self, i: int, j: int) -> float:
-        """The naive likelyhood of a random click on a neighbor ending up as a bomb"""
-        cell = self.cell_at(i, j)
-        if cell.state == CellState.UNOPENED:
-            ratio = float("inf")
-        else:
-            ratio = float(cell.state.value / self.unopened_near(i, j))
-        return ratio
-
     def neighbours(self, i: int, j: int) -> NDArray[Any]:
         """Returns a 3x3 matrix of the neighbours surrounding the given cell."""
         nbs = self._neighbours.get((i, j), np.empty((3, 3), dtype=object))
         if not nbs.any():
             nbs = np.empty((3, 3), dtype=object)
             for di, dj in product((-1, 0, 1), repeat=2):
-                nbs[dj][di] = self.cell_at(i + di, j + dj)
+                nbs[dj + 1][di + 1] = self.cell_at(i + di, j + dj)
         return nbs
+
+    def print_minefield(self):
+        """Prints the minefield in a nicely formatted way for easy visualisation"""
+
+        with np.printoptions(linewidth=200, formatter={"object": lambda x: "{:^3}".format(str(x))}):
+            print(self.grid)
 
     def _init_unopened_cells(self) -> Set[Tuple[int, int]]:
         """Returns a set of fresh unopened indices"""
         return set(product(range(self.width), range(self.height)))
+
+    def _init_numbered_cells(self) -> Dict[CellState, Set[Tuple[int, int]]]:
+        """Returns a set of fresh unopened indices"""
+        return {
+            i: set()
+            for i in CellState
+            if i not in [CellState.WALL, CellState.OPENED, CellState.UNOPENED, CellState.MINE]
+        }
 
     def _init_minefield(self) -> np.ndarray[Any]:
         """Creates the initial minefield with walls and unopened cells"""
@@ -157,7 +162,8 @@ class Minefield:
 
         for i, j in self._unopened:
             color = self._ms_ui.get_pixel_color(i, j)
-            if COLOR_TO_STATE[color] == CellState.OPENED:  # Could still be both opened or unopened
+            state = COLOR_TO_STATE[color]
+            if state == CellState.OPENED:  # Could still be both opened or unopened
                 rim_color = COLOR_TO_STATE[self._ms_ui.get_rim_color(i, j)]
                 if rim_color == CellState.OPENED:
                     # Highly likely empty, but could also be a seven.
@@ -168,7 +174,8 @@ class Minefield:
             else:
                 # A number was found
                 try:
-                    self.cell_at(i, j).state = COLOR_TO_STATE[color]
+                    self.cell_at(i, j).state = state
+                    self._numbered_cells[state].add((i, j))
                 except KeyError:
                     print("new color found:")
                     print(i, j, color)
