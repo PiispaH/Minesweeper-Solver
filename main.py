@@ -1,52 +1,43 @@
 #!/usr/bin/env python3
 
-import threading
-from time import sleep, time
-from typing import Callable
+import os
+import matplotlib.pyplot as plt
 import numpy as np
-from pynput import keyboard
-from minesweeper_solver.minefield import Minefield
-from minesweeper_solver.minesweeper_ui import MinesweeperUI
-from minesweeper_solver.solver import SolverNaive, SolverRandom
-
-
-def listener(func: Callable[[], None]):
-    def on_release(key: keyboard.Key) -> bool:
-        if key == keyboard.Key.esc:
-            return False
-        return True
-
-    thread = threading.Thread(target=func, daemon=True)
-    thread.start()
-
-    with keyboard.Listener(on_release=on_release) as listener:  # type: ignore
-        listener.join()
+from minesweeper_solver.DQL import DQL
 
 
 def main():
 
-    rows = 16
-    columns = 30
-    mines = 99
+    env_args = []  # [9, 9, 10]
 
-    ms_ui = MinesweeperUI(columns, rows)
-    ul = ms_ui.get_upper_left_cell()
+    batch_size = 128
+    episodes = 8
 
-    grid = Minefield(ul, rows, columns, mines, ms_ui)
+    def epsilon(step: int):
+        start = 0.9
+        end = 0.01
+        tc = 1000
+        return end + (start - end) * np.exp(-step / tc)
 
-    # solver = SolverRandom(grid, ms_ui)
-    solver = SolverNaive(grid, ms_ui)
+    gamma = 0.99
+    lr = 0.0003
+    w_update_interval = 300
 
-    start = time()
-    game_time = solver.run()
-    print("\n\n---------- You won!!! ----------\n\n")
-    print(f"Overall time taken for solve: {time()-start:.2g} s.")
-    print(f"Game time for solve: {game_time:.2g} s.")
+    with open(os.path.join("data", "game_state.txt"), "r") as f:
+        state = f.read()
 
-    # This frees the listener
-    keyboard.Controller().press(keyboard.Key.esc)
-    keyboard.Controller().release(keyboard.Key.esc)
+    agent = DQL(episodes, batch_size, epsilon, gamma, lr, w_update_interval, state=state, env_args=env_args)
+
+    try:
+        a = agent.run()
+    except Exception as e:
+        agent._env.close_env()
+        raise e
+    agent._env.close_env()
+
+    plt.ioff()
+    plt.show()
 
 
 if __name__ == "__main__":
-    listener(main)
+    main()

@@ -1,185 +1,263 @@
-from __future__ import annotations
-from copy import deepcopy
 from enum import Enum
-from itertools import product
-from typing import Any, Dict, List, Set, Tuple
-import numpy as np
-from numpy.typing import NDArray
-from .minesweeper_ui import MinesweeperUI
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 
-class CellState(Enum):
+class GameState(Enum):
     """Enumeration for the possible states of the cells"""
 
-    WALL = -1  # Not an actual cell but a wall
-    OPENED = 0
-    NEAR_1 = 1
-    NEAR_2 = 2
-    NEAR_3 = 3
-    NEAR_4 = 4
-    NEAR_5 = 5
-    NEAR_6 = 6
-    NEAR_7 = 7
-    NEAR_8 = 8
-    UNOPENED = 9  # This is the lighter rim color, the center is the same as opened
-    MINE = 10
+    PLAYING = "facesmile"
+    LOST = "facedead"
+    WIN = "facewin"
+    PRESSED = "facepressed"
+    OOH = "faceooh"
 
     def __repr__(self) -> str:
+        return str([i.value for i in GameState].index(self.value))
+
+    def __str__(self) -> str:
         return f"{self.name}"
 
 
-COLOR_TO_STATE = {
-    (170, 170, 170): CellState.UNOPENED,
-    (0, 0, 170): CellState.NEAR_1,
-    (0, 82, 0): CellState.NEAR_2,
-    (170, 0, 0): CellState.NEAR_3,
-    (0, 0, 82): CellState.NEAR_4,
-    (82, 0, 0): CellState.NEAR_5,
-    (0, 82, 82): CellState.NEAR_6,
-    (0, 0, 0): CellState.NEAR_7,
-    (126, 126, 126): CellState.OPENED,
-}
-"""Maps the RGB value to a cell state"""
-
-
-class Cell:
-    """Represents a single cell in the minefield"""
-
-    def __init__(self, grid_position: Tuple[int, int], screen_coords: Tuple[int, int]):
-        self._grid_position = grid_position
-        self._screen_coords = screen_coords
-        self.state = CellState.UNOPENED
-
-    @property
-    def screen_pos(self) -> Tuple[int, int]:
-        return self._screen_coords
+class CellState(Enum):
+    CELL_0 = "square open0"
+    CELL_1 = "square open1"
+    CELL_2 = "square open2"
+    CELL_3 = "square open3"
+    CELL_4 = "square open4"
+    CELL_5 = "square open5"
+    CELL_6 = "square open6"
+    CELL_7 = "square open7"
+    CELL_8 = "square open8"
+    UNOPENED = "square blank"
+    MINE = "square bombrevealed"
+    FLAG = "square bombflagged"
+    BOMBDEATH = "square bombdeath"
+    WALL = "wall"
 
     def __repr__(self) -> str:
-        return f"{self.state.value}"
+        """"""
+        if self == CellState.MINE:
+            s = "B"
+        elif self == CellState.FLAG:
+            s = "F"
+        else:
+            s = str(self.num())
+        return s
+
+    def __str__(self) -> str:
+        return f"{self.name}"
+
+    def num(self) -> int:
+        return [i.value for i in CellState].index(self.value)
 
 
-class Wall(Cell):
-    """A cell that represents a wall of the minefield"""
+class MineField:
+    def __init__(self, headless: bool, width: int = 0, height: int = 0, n_mines: int = 0, state: str = ""):
+        """Opens the game and setup the grid
 
-    def __init__(self, grid_position: Tuple[int, int], screen_coords: Tuple[int, int]):
-        super().__init__(grid_position, screen_coords)
-        self.state = CellState.WALL
+        Args:
+            headless: Whether to use headless mode
+            width: Width of the minefield
+            height: Height of the minefield
+            n_mines: Number of mines
+            state: A gamestate that can be imported
+        """
 
+        self._state = state
 
-class Minefield:
-    """Holds all the cells in the minefield"""
+        params = (width, height, n_mines)
+        if not all(params) and any(params):
+            raise ValueError("Either give all the width, height, and n_mines parameters, or none at all.")
+        if all(params) and state:
+            raise ValueError("Either give all the grid specifications or a grid state, not both.")
+        elif all(params) and bool([1 for x in params if x < 0]):
+            raise ValueError("Params width, height, and n_mines must all be non negative")
 
-    def __init__(self, ul: Tuple[int, int], rows: int, columns: int, mines: int, ms_ui: MinesweeperUI):
-        self._ul_x = ul[0]
-        self._ul_y = ul[1]
-        self.height = rows
-        self.width = columns
-        self.mines = mines
-        self._cell_size = 32
-        self._ms_ui = ms_ui
-        self._grid = self._init_minefield()
-        self._unopened = self._init_unopened_cells()
-        self._numbered_cells = self._init_numbered_cells()
-        self._neighbours: Dict[Tuple[int, int], NDArray[Any]] = {}  # The cells surrounding a point
+        geckodriver_path = "/snap/bin/geckodriver"
 
-    @property
-    def grid(self) -> np.ndarray:
-        return deepcopy(self._grid)
+        driver_service = webdriver.FirefoxService(executable_path=geckodriver_path)
 
-    @property
-    def unopened(self) -> Set[tuple[int, int]]:
-        """Cells that are still unopened"""
-        return deepcopy(self._unopened)
+        options = webdriver.FirefoxOptions()
+        if headless:
+            options.add_argument("-headless")
 
-    def prepare_new_minefield(self):
-        """Resets the minefield"""
-        self._grid = self._init_minefield()
-        self._unopened = self._init_unopened_cells()
+        # Setup driver and open the website
+        self._driver = webdriver.Firefox(service=driver_service, options=options)  # This raises if no driver found
+        wait = WebDriverWait(self._driver, 10)
+        self._driver.implicitly_wait(10)
+        self._driver.get("https://minesweeperonline.com/#200-night")
 
-    def mines_left(self):
-        """Returns the amount of mines left in the grid"""
-        return self.mines - sum(1 for i in self._grid.flatten() if i.state == CellState.MINE)
+        # Close the cookie popup
+        iframe = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "iframe#sp_message_iframe_1342217")))
+        self._driver.switch_to.frame(iframe)
+        accept_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[title='Accept']")))
+        accept_button.click()
+        self._driver.switch_to.default_content()
 
-    def cell_at(self, i: int, j: int) -> Cell:
-        return self._grid[j + 1][i + 1]
+        # Setup the desired minefield
 
-    def update_minefield(self):
-        """Updates the minefield to reflect the latest changes"""
+        if state:
+            self._import_gamestate()
+        elif (width, height, n_mines) != (0, 0, 0):
+            if not headless:
+                print("creating custom minefield...")
+            self._mod_game_specs(width, height, n_mines)
+        if not headless:
+            print("Loading every cell into memory...")
+        out = self._init_js()
 
-        self._ms_ui.take_a_screenshot()
+        self.grid = out["grid"]
+        self.height = out["rows"]
+        self.width = out["cols"]
 
-        dont_check = self._update_cell_status()
-        self._unopened = self._unopened.difference(dont_check)
+        self._face = self._driver.find_element(By.ID, "face")
+        self._mine_displ = [
+            self._driver.find_element(By.ID, "mines_hundreds"),
+            self._driver.find_element(By.ID, "mines_tens"),
+            self._driver.find_element(By.ID, "mines_ones"),
+        ]
+        self._time_displ = [
+            self._driver.find_element(By.ID, "seconds_hundreds"),
+            self._driver.find_element(By.ID, "seconds_tens"),
+            self._driver.find_element(By.ID, "seconds_ones"),
+        ]
 
-    def neighbours(self, i: int, j: int) -> NDArray[Any]:
-        """Returns a 3x3 matrix of the neighbours surrounding the given cell."""
-        nbs = self._neighbours.get((i, j), np.empty((3, 3), dtype=object))
-        if not nbs.any():
-            nbs = np.empty((3, 3), dtype=object)
-            for di, dj in product((-1, 0, 1), repeat=2):
-                nbs[dj + 1][di + 1] = self.cell_at(i + di, j + dj)
-        return nbs
+        self._n_mines = self.get_mines()
 
-    def print_minefield(self):
-        """Prints the minefield in a nicely formatted way for easy visualisation"""
+        if not headless:
+            print("\n============= SETUP COMPLETE =============", end="\n\n")
 
-        with np.printoptions(linewidth=200, formatter={"object": lambda x: "{:^3}".format(str(x))}):
-            print(self.grid)
+    def _init_js(self):
+        """Determines the size of the grid and provides a function to fetch the grid"""
 
-    def _init_unopened_cells(self) -> Set[Tuple[int, int]]:
-        """Returns a set of fresh unopened indices"""
-        return set(product(range(self.width), range(self.height)))
+        s = f"""
+            window.getSquareValue = function(id) {{
+                const square = document.getElementById(id);
+                if (!square) return null;
+                if (square.style.display === 'none') return 'wall';
+                return square.className;
+            }}
 
-    def _init_numbered_cells(self) -> Dict[CellState, Set[Tuple[int, int]]]:
-        """Returns a set of fresh unopened indices"""
-        return {
-            i: set()
-            for i in CellState
-            if i not in [CellState.WALL, CellState.OPENED, CellState.UNOPENED, CellState.MINE]
-        }
+            // determine grid size dynamically
+            let rows = 0;
+            let cols = 0;
 
-    def _init_minefield(self) -> np.ndarray[Any]:
-        """Creates the initial minefield with walls and unopened cells"""
-        grid: List[List[Cell]] = []
-        for j in range(-1, self.height + 1):
-            row: List[Cell] = []
-            for i in range(-1, self.width + 1):
-                if i < 0 or j < 0 or i == self.width or j == self.height:
-                    row.append(Wall((i, j), (-1, -1)))
-                else:
-                    row.append(Cell((i, j), self._cell_center_coords(i, j)))
-            grid.append(row)
-        return np.array(grid)
+            // find number of rows
+            while (true) {{
+                rows++;
+                const cell = document.getElementById(`${{rows}}_1`);
+                if (!cell || cell.style.display === 'none') {{
+                    rows--;
+                    break;
+                }}
+            }}
 
-    def _cell_center_coords(self, i: int, j: int) -> Tuple[int, int]:
-        """Gives the pixel coordinates of the center of the cell with index i, j"""
-        return self._ul_x + i * self._cell_size, self._ul_y + j * self._cell_size
+            // find number of columns
+            while (true) {{
+                cols++;
+                const cell = document.getElementById(`1_${{cols}}`);
+                if (!cell || cell.style.display === 'none') {{
+                    cols--;
+                    break;
+                }}
+            }}
 
-    def _update_cell_status(self) -> Set[Tuple[int, int]]:
-        """Updates the status of each cell that was previously unopened. Returns a set of indices that don't
-        need to be checked anymore"""
-        no_need_to_check: Set[Tuple[int, int]] = set()
+            window.getGrid = function(rows, cols) {{
+                const grid = [];
+                for (let r = 1; r <= rows; r++) {{
+                    const row = [];
+                    for (let c = 1; c <= cols; c++) {{
+                        const id = `${{r}}_${{c}}`;
+                        row.push(window.getSquareValue(id));
+                    }}
+                    grid.push(row);
+                }}
+                return grid;
+            }}
 
-        for i, j in self._unopened:
-            color = self._ms_ui.get_pixel_color(i, j)
-            state = COLOR_TO_STATE[color]
-            if state == CellState.OPENED:  # Could still be both opened or unopened
-                rim_color = COLOR_TO_STATE[self._ms_ui.get_rim_color(i, j)]
-                if rim_color == CellState.OPENED:
-                    # Highly likely empty, but could also be a seven.
-                    self.cell_at(i, j).state = COLOR_TO_STATE[self._ms_ui.get_slight_center_offset_color(i, j)]
-                else:
-                    # Is unopened, so no action is taken
-                    continue
-            else:
-                # A number was found
-                try:
-                    self.cell_at(i, j).state = state
-                    self._numbered_cells[state].add((i, j))
-                except KeyError:
-                    print("new color found:")
-                    print(i, j, color)
-                    raise KeyError
+            // return grid along with dimensions
+            return {{ grid: window.getGrid(rows, cols), rows: rows, cols: cols }};
+            """
+        return self._driver.execute_script(s)
 
-            no_need_to_check.add((i, j))
-        return no_need_to_check
+    def _import_gamestate(self):
+        s = f"""
+        document.querySelector("textarea").value = "{self._state}" 
+        document.querySelector('input[type="submit"][value="Load Game"]').click();
+        """
+        self._driver.execute_script(s)
+
+    def _mod_game_specs(self, width: int, height: int, n_mines: int):
+        s = f"""
+        document.getElementById("custom").click();
+        document.getElementById("custom_height").value = {height};
+        document.getElementById("custom_width").value = {width};
+        document.getElementById("custom_mines").value = {n_mines};
+        document.querySelector('input[type="submit"][value="New Game"]').click();
+        """
+        self._driver.execute_script(s)
+
+    def get_grid(self):
+        """Returns the grid as an iterator"""
+        s = f"return window.getGrid({self.height}, {self.width})"
+        grid = self._driver.execute_script(s)
+        return [[CellState(c).num() for c in row] for row in grid]
+
+    def _mouse_click_on_cells(self, arr, button: int):
+        js_ids = ", ".join(f'"{y + 1}_{x + 1}"' for x, y in arr)
+
+        s = f"""
+        const squareIds = [{js_ids}];
+        squareIds.forEach(id => {{
+            const square = document.getElementById(id);
+            if (square) {{
+                // simulate left click
+                square.dispatchEvent(new MouseEvent("mousedown", {{ button: {button}, bubbles: true }}));
+                square.dispatchEvent(new MouseEvent("mouseup", {{ button: {button}, bubbles: true }}));
+            }}
+        }});
+        """
+        self._driver.execute_script(s)
+
+    def open_cell(self, x: int, y: int):
+        """Indexing starting from 0"""
+        self._mouse_click_on_cells([(x, y)], 0)
+
+    def flag_cell(self, x: int, y: int):
+        """Indexing starting from 0"""
+        self._mouse_click_on_cells([(x, y)], 2)
+
+    def get_time(self):
+        """Gets the elapsed game time"""
+        return int("".join([str(x.get_attribute("class")).removeprefix("time") for x in self._time_displ]))
+
+    def get_mines(self):
+        """Gets the mine amount"""
+        return int("".join([str(x.get_attribute("class")).removeprefix("time") for x in self._mine_displ]))
+
+    def get_gamestate(self):
+        """Returns the gamestate"""
+        return GameState(str(self._face.get_attribute("class")))
+
+    def get_cell_state(self, x: int, y: int):
+        """Returns the cells state at the given coordinates"""
+        cell_str = self._driver.execute_script(f'return window.getSquareValue("{y + 1}_{x + 1}");')
+        return CellState(cell_str)
+
+    def end_session(self):
+        """Exits the web driver"""
+        self._driver.quit()
+
+    def restart(self):
+        """Starts a new game"""
+        self._face.click()
+
+    def print_grid(self):
+        print()
+        grid = self.get_grid()
+        for row in grid:
+            print(row)
+        print()
