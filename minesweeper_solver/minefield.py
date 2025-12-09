@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Tuple
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
@@ -109,9 +110,14 @@ class MineField:
             print("Loading every cell into memory...")
         out = self._init_js()
 
-        self.grid = out["grid"]
+        # These are static
         self.height = out["rows"]
         self.width = out["cols"]
+        self.n_mines = max(0, min(out["n_mines"], self.width * self.height - 1))
+        # These change
+        self.initial_grid = [[CellState(c).num() for c in row] for row in out["grid"]]
+        self.initial_mines_left = out["mines_left"]
+        self.initial_seconds = out["seconds"]
 
         self._face = self._driver.find_element(By.ID, "face")
         self._mine_displ = [
@@ -131,7 +137,7 @@ class MineField:
             print("\n============= SETUP COMPLETE =============", end="\n\n")
 
     def _init_js(self):
-        """Determines the size of the grid and provides a function to fetch the grid"""
+        """Determines the size of the grid and defines hepler functions"""
 
         s = f"""
             window.getSquareValue = function(id) {{
@@ -139,7 +145,7 @@ class MineField:
                 if (!square) return null;
                 if (square.style.display === 'none') return 'wall';
                 return square.className;
-            }}
+            }};
 
             // determine grid size dynamically
             let rows = 0;
@@ -152,8 +158,8 @@ class MineField:
                 if (!cell || cell.style.display === 'none') {{
                     rows--;
                     break;
-                }}
-            }}
+                }};
+            }};
 
             // find number of columns
             while (true) {{
@@ -162,8 +168,8 @@ class MineField:
                 if (!cell || cell.style.display === 'none') {{
                     cols--;
                     break;
-                }}
-            }}
+                }};
+            }};
 
             window.getGrid = function(rows, cols) {{
                 const grid = [];
@@ -172,14 +178,48 @@ class MineField:
                     for (let c = 1; c <= cols; c++) {{
                         const id = `${{r}}_${{c}}`;
                         row.push(window.getSquareValue(id));
-                    }}
+                    }};
                     grid.push(row);
-                }}
+                }};
                 return grid;
-            }}
+            }};
+
+            window.extractDigit = function(id) {{
+                const cls = document.getElementById(id).className;
+                const match = cls.match(/\\d$/);
+                return match ? match[0] : "0";
+            }};
+
+            window.getMines = function() {{
+                const m1 = window.extractDigit("mines_ones");
+                const m10 = window.extractDigit("mines_tens");
+                const m100 = window.extractDigit("mines_hundreds");
+                return parseInt(m100 + m10 + m1, 10);
+            }};
+
+            window.getSeconds = function() {{
+                const s1 = window.extractDigit("seconds_ones");
+                const s10 = window.extractDigit("seconds_tens");
+                const s100 = window.extractDigit("seconds_hundreds");
+                return parseInt(s100 + s10 + s1, 10);
+            }};
+
+            window.getNMines = function () {{
+                if (document.getElementById("custom").checked) {{
+                    return parseInt(document.getElementById("custom_mines").value, 10);
+                }};
+                return window.getMines()
+            }};
 
             // return grid along with dimensions
-            return {{ grid: window.getGrid(rows, cols), rows: rows, cols: cols }};
+            return {{
+                grid: window.getGrid(rows, cols),
+                rows: rows,
+                cols: cols,
+                n_mines: window.getNMines(),
+                mines_left: window.getMines(),
+                seconds: window.getSeconds(),
+            }};
             """
         return self._driver.execute_script(s)
 
@@ -214,7 +254,6 @@ class MineField:
         squareIds.forEach(id => {{
             const square = document.getElementById(id);
             if (square) {{
-                // simulate left click
                 square.dispatchEvent(new MouseEvent("mousedown", {{ button: {button}, bubbles: true }}));
                 square.dispatchEvent(new MouseEvent("mouseup", {{ button: {button}, bubbles: true }}));
             }}
@@ -222,9 +261,56 @@ class MineField:
         """
         self._driver.execute_script(s)
 
+    def execute_action_and_get_info(self, x: int, y: int, button: int) -> Tuple:
+        """Simulates a mouseclick of the given button on the cell at the given coordinates.
+
+        Args:
+            x: x-coordinate of the cell
+            y: y-coordinate of the cell
+            button: What mousebutton to simulate
+
+        Returns:
+            Tuple: A tuple containing four items:
+                - CellState: The cell before the action
+                - CellState: The cell after the action
+                - list: The current minefield grid
+                - GameState: The gamestate
+                - int: The amount of mines left according to the game
+                - int: The in-game time in seconds
+        """
+        id = f"{y + 1}_{x + 1}"
+        s = f"""
+        const square = document.getElementById("{id}");
+        const before_str = window.getSquareValue("{id}");
+
+        square.dispatchEvent(new MouseEvent("mousedown", {{ button: {button}, bubbles: true }}));
+        square.dispatchEvent(new MouseEvent("mouseup", {{ button: {button}, bubbles: true }}));
+
+        const grid = window.getGrid({self.height}, {self.width});
+        const gamestate = document.getElementById("face").className;
+        
+        return {{
+            cell_before: before_str,
+            cell_after: window.getSquareValue("{id}"),
+            grid: grid,
+            game_state: gamestate,
+            mines_left: window.getMines(),
+            seconds: window.getSeconds(),
+        }};
+        """
+        res = self._driver.execute_script(s)
+        before = CellState(res["cell_before"])
+        after = CellState(res["cell_after"])
+        game_state = GameState(res["game_state"])
+        grid = [[CellState(c).num() for c in row] for row in res["grid"]]
+        mines_left = res["mines_left"]
+        seconds = res["seconds"]
+
+        return before, after, grid, game_state, mines_left, seconds
+
     def open_cell(self, x: int, y: int):
         """Indexing starting from 0"""
-        self._mouse_click_on_cells([(x, y)], 0)
+        return self._mouse_click_on_cells([(x, y)], 0)
 
     def flag_cell(self, x: int, y: int):
         """Indexing starting from 0"""

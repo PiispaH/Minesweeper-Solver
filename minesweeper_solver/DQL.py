@@ -1,5 +1,7 @@
 from collections import namedtuple
 from enum import Enum
+from functools import wraps
+import os
 from itertools import product
 import random
 from typing import Callable, List
@@ -10,15 +12,26 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from .minefield import CellState, GameState, MineField
-from .utils import FlattenedGrid
 
 
-class Operations(Enum):
+def exit_env(func):
+
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        try:
+            func(self, *args, **kwargs)
+        finally:
+            self._env.close_env()
+
+    return wrapper
+
+
+class Action(Enum):
     OPEN = 0
     FLAG = 1
 
 
-Action = namedtuple("Action", ["op", "x", "y"])
+ActionTuple = namedtuple("Action", ["action", "x", "y"])
 Transition = namedtuple("Transition", ["state", "action", "reward", "next_state"])
 
 
@@ -33,33 +46,36 @@ class MinesweepperEnv:
 
         self._height = self._mf.height
         self._width = self._mf.width
-        self._mines = self._mf._n_mines
+        self._n_mines = self._mf._n_mines
 
         self.actions = [
-            Action(Operations.OPEN, x, y)
+            ActionTuple(Action.OPEN, x, y)
             for x, y in product(range(self._width), range(self._height))
             # Action(op, x, y) for op, x, y in product(list(Operations), range(self._width), range(self._height))
         ]
         self.n_actions = len(self.actions)
         self.obs_dim = self._height * self._width
 
-        # These need to be reset
-        self._current_state = FlattenedGrid([[]])
-        self._update_current_env_state()
+        # These change
+        self._grid = self._mf.initial_grid
+        self._game_state = GameState.PLAYING
+        self._mines_left = self._mf.initial_mines_left
+        self._seconds = self._mf.initial_seconds
         self._clicks = 0
 
-    def _index_of_cell_at(self, x: int, y: int):
-        return self._height * x + y
+    def take_action(self, x: int, y: int, op: Action):
+        """Takes the specified action and returns the resulting information"""
+        op_num = 0 if op == Action.OPEN else 2
+        out = self._mf.execute_action_and_get_info(x, y, op_num)
 
-    def _update_single_cell(self, x: int, y: int):
-        self._current_state[x, y] = self._mf.get_cell_state(x, y).num()
+        cell_before = out[0]
+        cell_after = out[1]
+        self._grid = out[2]
+        self._game_state = out[3]
+        self._mines_left = out[4]
+        self._seconds = out[5]
 
-    def _update_current_env_state(self):
-        """Returns the state of the environment as a vector"""
-        self._current_state = FlattenedGrid(self._mf.get_grid())
-
-    def _get_cell_state(self, x: int, y: int):
-        return self._mf.get_cell_state(x, y)
+        return cell_before, cell_after
 
     def reset(self):
         """Restarts the game."""
@@ -68,18 +84,11 @@ class MinesweepperEnv:
         else:
             self._mf.restart()
         self._clicks = 0
-        return self.encode_board()
-
-    def _open_cell(self, x, y):
-        """Opens the given cell. Returns whether the uncovered cell is empty (cell 0)"""
-        self._mf.open_cell(x, y)
-
-    def _flag_cell(self, x: int, y: int):
-        self._mf.flag_cell(x, y)
-
-    def _mines_left(self):
-        """Returns the amount of mines left in the field by the UI counter"""
-        return self._mf.get_mines()
+        self._grid = self._mf.initial_grid
+        self._game_state = GameState.PLAYING
+        self._mines_left = self._mf.initial_mines_left
+        self._seconds = self._mf.initial_seconds
+        return self._encode_state(self._mf.initial_grid)
 
     def step(self, action_ind: int):
         """Makes the given action and calculate the reward.
@@ -98,22 +107,23 @@ class MinesweepperEnv:
         action = self.actions[action_ind]
         x = action.x
         y = action.y
-        op = action.op
+        act = action.action
 
-        cell_state = self._get_cell_state(x, y)
+        cell_before, cell_after = self.take_action(x, y, act)
 
-        # whole_grid_update = False
+        if cell_before != cell_after and cell_after not in (CellState.BOMBDEATH, CellState.FLAG):
+            # Reward for opening a usefull cell
+            reward += 5
 
-        if op == Operations.OPEN:
+        # if op == Operations.OPEN:
 
-            if cell_state == CellState.UNOPENED:
-                # Give points for opening a unopened cell (even if it was a bomb).
-                reward += 5
-                # whole_grid_update = self._open_cell(x, y)
-                self._open_cell(x, y)
-            else:
-                # Give minus points since this is not a valid move...
-                reward -= 1
+        # if cell_state == CellState.UNOPENED:
+        # Give points for opening a unopened cell).
+        # state = self._open_cell(x, y)
+        # reward += 5
+        # else:
+        # Give minus points since this is not a valid move...
+        # reward -= 1
 
         # elif op == Operations.FLAG:
         #     if cell_state == CellState.UNOPENED:
@@ -124,14 +134,12 @@ class MinesweepperEnv:
         #
         #     self._flag_cell(x, y)
 
-        game_state = self._mf.get_gamestate()
-
         # Check if terminated
         terminated = False
-        if game_state == GameState.WIN:
+        if self._game_state == GameState.WIN:
             terminated = True
             reward += 100
-        elif game_state == GameState.LOST:
+        elif self._game_state == GameState.LOST:
             terminated = True
             reward -= 50
 
@@ -140,21 +148,16 @@ class MinesweepperEnv:
         if self._clicks == self._height * self._width:
             truncated = True
 
-        # if not terminated and whole_grid_update:
-        #     # Only do this when needed, it's costly...
-        #     self._update_current_env_state()
-        #     # mines_left = self._mf.get_mines() # this can be also optimised by counting the flags and mines ourself
-
-        return self.encode_board(), reward, terminated, truncated
+        return self._encode_state(self._grid), reward, terminated, truncated
 
     def close_env(self):
         self._mf.end_session()
 
-    def encode_board(self):
-
+    def _encode_state(self, grid):
+        """Separates the minefield into  matrixes, other contains numbered cells, other the unopened cells"""
         encoded = np.zeros((2, self._height, self._width), dtype=np.float32)
 
-        grid = np.array(self._mf.get_grid())
+        grid = np.array(grid)
 
         encoded[0] = np.where(grid < 9, grid / 8.0, 0)
         encoded[1] = (grid == 9).astype(np.float32)
@@ -184,7 +187,6 @@ class ConvolutionalNet(nn.Module):
     def __init__(self):
         super().__init__()
 
-        # Basic convolutional feature extractor
         self.conv1 = nn.Conv2d(2, 32, kernel_size=5, padding=2)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=5, padding=2)
         self.conv3 = nn.Conv2d(64, 64, kernel_size=5, padding=2)
@@ -249,19 +251,36 @@ class DQL:
         self._n_actions = self._env.n_actions
         self._dim_obs_space = self._env.obs_dim
 
-        self._policy_nn = ConvolutionalNet()
-        self._target_nn = ConvolutionalNet()
+        self._policy_net = ConvolutionalNet()
+        self._target_net = ConvolutionalNet()
 
         self._update_target_net()
 
-        self._optimizer = optim.AdamW(self._policy_nn.parameters(), lr=self._lr, amsgrad=True)
+        self._optimizer = optim.AdamW(self._policy_net.parameters(), lr=self._lr, amsgrad=True)
         self._steps_taken = 0
+        self._episodes_ran = 0
 
         self._plotter = Plotter()
 
+    def save_model(self):
+        state = {
+            "episodes_ran": self._episodes,
+            "state_dict_policy": self._policy_net.state_dict(),
+            "state_dict_target": self._target_net.state_dict(),
+            "optimizer": self._optimizer.state_dict(),
+        }
+        torch.save(state, os.path.join("data", ".model.pt"))
+
+    def load_model(self):
+        state = torch.load(os.path.join("data", ".model.pt"))
+        self._policy_net.load_state_dict(state["state_dict_policy"])
+        self._target_net.load_state_dict(state["state_dict_target"])
+        self._optimizer.load_state_dict(state["optimizer"])
+        self._episodes_ran = state["episodes_ran"]
+
     def _update_target_net(self):
         """Updates the target net to match the policy net"""
-        self._target_nn.load_state_dict(self._policy_nn.state_dict())
+        self._target_net.load_state_dict(self._policy_net.state_dict())
 
     def _set_rnd_seed(self):
         seed = 42
@@ -277,7 +296,7 @@ class DQL:
             return torch.tensor([[np.random.choice(range(self._n_actions))]], dtype=torch.int32, device=self._device)
         # Choose the action that maximises the future rewards according to the policy network
         with torch.no_grad():
-            return self._policy_nn(state).max(1).indices.view(1, 1)
+            return self._policy_net(state).max(1).indices.view(1, 1)
 
     def _optim_batch(self, memory):
         """Performs one round of backpropagation and optimization"""
@@ -292,13 +311,13 @@ class DQL:
         next_states = torch.cat([i for i in batch.next_state if i is not None])
 
         # The scores of the actions that the nn would have made
-        Q_i = self._policy_nn(states).gather(1, actions)
+        Q_i = self._policy_net(states).gather(1, actions)
 
         # compute the actual scores of the next states
         mask = torch.tensor([i is not None for i in batch.next_state], dtype=torch.bool)
         target = rewards
         with torch.no_grad():
-            target[mask] += self._gamma * self._target_nn(next_states).max(1).values
+            target[mask] += self._gamma * self._target_net(next_states).max(1).values
 
         # Take one step towards the negative gradient
         loss_fn = F.huber_loss(Q_i.squeeze(1), target)
@@ -306,8 +325,9 @@ class DQL:
         loss_fn.backward()
         self._optimizer.step()
 
-    def run(self):
-        """Runs the model"""
+    @exit_env
+    def train(self):
+        """Trains the model"""
         memory = Memory()
         episode_scores = []
         episode_clicks = []
@@ -316,16 +336,14 @@ class DQL:
             state = torch.tensor(state, dtype=torch.float32, device=self._device).unsqueeze(0)
 
             terminated, truncated = False, False
-
-            cum_rewards = 0
-
+            cum_rew = 0
             for _ in range(self._env._width * self._env._height):
-                self._steps_taken += 1
                 # Select an action, take it and store the transition
                 action = self._select_action(state)
                 observation, reward, terminated, truncated = self._env.step(action.item())  # type: ignore
+                self._steps_taken += 1
 
-                cum_rewards += reward
+                cum_rew += reward
 
                 if terminated:
                     observation = None
@@ -348,13 +366,15 @@ class DQL:
 
                 if terminated or truncated:
                     # Time to stop the fun
-                    episode_scores.append(cum_rewards)
+                    episode_scores.append(cum_rew)
                     episode_clicks.append(self._env._clicks)
                     self._plotter.update(episode_scores)
                     break
 
+            self._episodes_ran += 1
+
         self._plotter.finalise()
-        return episode_scores
+        self.save_model()
 
 
 class Plotter:
@@ -404,7 +424,7 @@ if __name__ == "__main__":
     agent = DQL(episodes, batch_size, epsilon, gamma, lr, w_update_interval, env_args=env_args)
 
     try:
-        a = agent.run()
+        a = agent.train()
     except Exception as e:
         agent._env.close_env()
         raise e

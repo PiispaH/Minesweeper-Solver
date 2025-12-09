@@ -2,10 +2,10 @@ import unittest
 from unittest.mock import patch
 from minesweeper_solver.minefield import CellState
 from minesweeper_solver.solver import SolverBase, SolverNaive, SolverRandom
-from tests.utils import get_gamestate
+from minesweeper_solver.utils import get_gamestate
 
 
-class TestSolverBase1(unittest.TestCase):
+class TestSolverBase(unittest.TestCase):
     """Tests for SolverBase with a class constructor"""
 
     @classmethod
@@ -31,18 +31,18 @@ class TestSolverRandom(unittest.TestCase):
         cls.solver.quit()
 
     def test_solver_runs_and_stops(self):
-        with patch("new_solver.solver.SolverRandom._check_if_lost") as mock_method:
+        with patch("minesweeper_solver.solver.SolverRandom._check_if_lost") as mock_method:
             self.solver.run(1)
             mock_method.assert_called_once()
 
-        with patch("new_solver.solver.SolverRandom._check_if_lost") as mock_method:
+        with patch("minesweeper_solver.solver.SolverRandom._check_if_lost") as mock_method:
             self.solver.run(2)
             mock_method.assert_called()
             self.assertEqual(mock_method.call_count, 2)
 
 
 class TestSolverNaive(unittest.TestCase):
-    """Tests for SolverBase with a class constructor"""
+    """Tests for SolverNaive with a class constructor"""
 
     @classmethod
     def setUpClass(cls):
@@ -196,7 +196,7 @@ class TestSolverNaive(unittest.TestCase):
 
 
 class TestSolverNaive2(unittest.TestCase):
-    """Tests for SolverBase without a class constructor"""
+    """Tests for SolverNaive without a class constructor"""
 
     def test_select_the_safest_bet(self):
         state = get_gamestate(2)
@@ -206,8 +206,8 @@ class TestSolverNaive2(unittest.TestCase):
 
         _, _, inds = solver._informative_numbered_cells()
 
-        with patch("new_solver.solver.choice") as mock_random, patch(
-            "new_solver.solver.SolverBase._open_cell"
+        with patch("minesweeper_solver.solver.choice") as mock_random, patch(
+            "minesweeper_solver.solver.SolverBase._open_cell"
         ) as mock_open:
             mock_random.return_value = (3, 7)
             solver._select_the_safest_bet(inds)
@@ -221,7 +221,7 @@ class TestSolverNaive2(unittest.TestCase):
         state = get_gamestate(1)
         solver = SolverNaive(state=state, headless=True)
 
-        with patch("new_solver.solver.choice") as mock_random:
+        with patch("minesweeper_solver.solver.choice") as mock_random:
             mock_random.return_value = (6, 2)
             time = solver.run(19)
             self.assertSetEqual(set(mock_random.call_args[0][0]), set([(6, 2), (5, 2), (4, 2)]))

@@ -1,5 +1,5 @@
 import unittest
-from minesweeper_solver.utils import FlattenedGrid
+from minesweeper_solver.utils import FlattenedGrid, get_gamestate
 
 
 class TestFlattenedGrid(unittest.TestCase):
@@ -31,3 +31,10 @@ class TestFlattenedGrid(unittest.TestCase):
         data = [[(j, i) for j in range(columns)] for i in range(rows)]
         grid = FlattenedGrid(data)
         self.assertEqual(grid[5, 2], (5, 2))
+
+
+class TestGetState(unittest.TestCase):
+    def test_get_gamestate(self):
+        state1 = get_gamestate(1)
+        state2 = get_gamestate(2)
+        self.assertNotEqual(state1, state2)

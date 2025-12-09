@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
-import os
 import matplotlib.pyplot as plt
 import numpy as np
 from minesweeper_solver.DQL import DQL
+from minesweeper_solver.utils import get_gamestate
 
 
 def main():
@@ -11,7 +11,7 @@ def main():
     env_args = []  # [9, 9, 10]
 
     batch_size = 128
-    episodes = 8
+    episodes = 150
 
     def epsilon(step: int):
         start = 0.9
@@ -23,20 +23,13 @@ def main():
     lr = 0.0003
     w_update_interval = 300
 
-    with open(os.path.join("data", "game_state.txt"), "r") as f:
-        state = f.read()
+    state = get_gamestate(1)
 
     agent = DQL(episodes, batch_size, epsilon, gamma, lr, w_update_interval, state=state, env_args=env_args)
 
-    try:
-        a = agent.run()
-    except Exception as e:
-        agent._env.close_env()
-        raise e
-    agent._env.close_env()
+    agent.train()
 
-    plt.ioff()
-    plt.show()
+    plt.show()  # This leaves the training plot visible after its complete
 
 
 if __name__ == "__main__":

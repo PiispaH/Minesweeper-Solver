@@ -1,6 +1,13 @@
 from functools import wraps
+import os
 import time
 from typing import Tuple
+
+
+def get_gamestate(number: int) -> str:
+    """Returns the corresponding saved gamestate form the resources -folder."""
+    with open(os.path.join("data", f"game_state_{number}.txt"), "r") as f:
+        return f.read()
 
 
 def func_timer(func):
