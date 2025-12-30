@@ -5,3 +5,4 @@ numpy
 screeninfo
 pillow
 pynput
+typer

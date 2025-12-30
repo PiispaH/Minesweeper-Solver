@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from minesweeper_solver.DQL import MinesweepperEnv, Action
+from minesweeper_solver.DQL import Action, MinesweepperEnv
 from minesweeper_solver.minefield import CellState
 from minesweeper_solver.utils import get_gamestate
 

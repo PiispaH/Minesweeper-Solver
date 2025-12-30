@@ -212,7 +212,7 @@ class TestSolverNaive2(unittest.TestCase):
             mock_random.return_value = (3, 7)
             solver._select_the_safest_bet(inds)
             mock_random.assert_called_once_with(exp_inds)
-            mock_open.assert_called_once_with(3, 7)
+            mock_open.assert_called_once_with(3, 7, slow=True)
 
         solver.quit()
 
