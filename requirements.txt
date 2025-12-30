@@ -1,8 +1,9 @@
 black
 isort
-PyAutoGui
+selenium
 numpy
 screeninfo
 pillow
 pynput
 typer
+matplotlib
