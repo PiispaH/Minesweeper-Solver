@@ -4,9 +4,24 @@ Contains solvers and a framework for easily building new ones. The SolverBase -c
 starting a new game and handling the interactions with it. At its simplest, a new solver can just
 inherit from the base class and implement only the `_run()` method, that contains the solver loop.
 
-Currently contains three solvers:
+
+## Usage
+
+Clone the repository and run
+```
+pip install -r requirements.txt
+```
+to install the dependencies. Also follow [these](https://pytorch.org/get-started/locally/) instructions to install pytorch.
+
+Run the command
+```
+./main.py --help
+```
+for instructions on how to run the solvers.
 
 ## Solvers
+
+Currently there are three solvers:
 
 ### Random:
 
