@@ -36,6 +36,7 @@ class CellState(Enum):
     MINE = "square bombrevealed"
     FLAG = "square bombflagged"
     BOMBDEATH = "square bombdeath"
+    MISFLAG_MINE = "square bombmisflagged"
     WALL = "wall"
 
     def __repr__(self) -> str:

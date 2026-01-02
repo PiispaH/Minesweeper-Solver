@@ -6,8 +6,13 @@ app = typer.Typer()
 
 
 @app.command()
-def train_dql():
-    """Trains the DQL model"""
+def train_dql(flags: bool = False, save: bool = True):
+    """Trains the DQL model
+
+    Args:
+        flags (bool): Wheter to allow flags.
+    """
+
     import matplotlib.pyplot as plt
     import numpy as np
     from minesweeper_solver.DQL import DQL
@@ -28,7 +33,18 @@ def train_dql():
     env_args = [9, 9, 10]
     env_kwargs = {}
 
-    agent = DQL(episodes, batch_size, epsilon, gamma, lr, w_update_interval, env_args=env_args, env_kwargs=env_kwargs)
+    agent = DQL(
+        episodes,
+        batch_size,
+        epsilon,
+        gamma,
+        lr,
+        w_update_interval,
+        flags,
+        save,
+        env_args=env_args,
+        env_kwargs=env_kwargs,
+    )
 
     agent.train()
 

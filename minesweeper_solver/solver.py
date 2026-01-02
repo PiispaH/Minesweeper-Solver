@@ -259,7 +259,7 @@ class SolverDQL(SolverBase):
             raise FileNotFoundError("File model.pt not found. Train a DQL model first.")
 
         state = torch.load(os.path.join("data", "model.pt"))
-        self._cnn = ConvolutionalNet()
+        self._cnn = ConvolutionalNet(False)
         self._cnn.load_state_dict(state["state_dict_policy"])
         self._actions = [(x, y) for y, x in product(range(kwargs["width"]), range(kwargs["height"]))]
 

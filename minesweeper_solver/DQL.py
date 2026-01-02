@@ -1,11 +1,13 @@
 from collections import namedtuple
 from functools import wraps
 from itertools import product
+from enum import Enum
 import os
 import random
 from typing import Callable, List
 import matplotlib.pyplot as plt
 import numpy as np
+from numpy.typing import NDArray
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -25,7 +27,12 @@ def exit_env(func):
     return wrapper
 
 
-ActionTuple = namedtuple("Action", ["x", "y"])
+class Op(Enum):
+    OPEN = 0
+    FLAG = 2
+
+
+ActionTuple = namedtuple("Action", ["op", "x", "y"])
 Transition = namedtuple("Transition", ["state", "action", "reward", "next_state"])
 
 
@@ -33,7 +40,15 @@ class MinesweepperEnv:
     """Provides the environment for the RL agent"""
 
     def __init__(
-        self, height: int = 0, width: int = 0, mines: int = 0, state: str = "", headless=False, *args, **kwargs
+        self,
+        height: int = 0,
+        width: int = 0,
+        mines: int = 0,
+        state: str = "",
+        flags_allowed: bool = False,
+        headless=False,
+        *args,
+        **kwargs,
     ):
         self._state = state
         self._mf = MineField(headless, width, height, mines, state=state, *args, **kwargs)
@@ -42,7 +57,13 @@ class MinesweepperEnv:
         self._width = self._mf.width
         self._n_mines = self._mf._n_mines
 
-        self.actions = [ActionTuple(x, y) for y, x in product(range(self._height), range(self._width))]
+        self._flags_allowed = flags_allowed
+
+        operations = list(Op) if self._flags_allowed else [Op.OPEN]
+
+        self.actions = [
+            ActionTuple(op, x, y) for op, y, x in product(operations, range(self._height), range(self._width))
+        ]
         self.n_actions = len(self.actions)
         self.obs_dim = self._height * self._width
 
@@ -53,9 +74,9 @@ class MinesweepperEnv:
         self._seconds = self._mf.initial_seconds
         self._clicks = 0
 
-    def take_action(self, x: int, y: int):
+    def take_action(self, op: Op, x: int, y: int):
         """Takes the specified action and returns the resulting information"""
-        out = self._mf.execute_action_and_get_info(x, y, 0)
+        out = self._mf.execute_action_and_get_info(x, y, op.value)
 
         cell_before = out[0]
         cell_after = out[1]
@@ -94,26 +115,31 @@ class MinesweepperEnv:
         reward = -0.5
 
         action = self.actions[action_ind]
+        op = action.op
         x = action.x
         y = action.y
 
-        cell_before, cell_after = self.take_action(x, y)
+        cell_before, cell_after = self.take_action(op, x, y)
 
-        if cell_after in (cell_before, CellState.FLAG):
-            raise Exception(f"Useless selection! x={x}, y={y}")
+        if cell_after == cell_before:
+            raise Exception(f"Useless selection! x={x}, y={y}, this shouldn't be possible.")
+
+        if cell_before == CellState.FLAG and op == Op.FLAG:
+            raise Exception(f"Tried to reflag x={x}, y={y}, this shouldn't be possible.")
+
         if cell_after not in (cell_before, CellState.BOMBDEATH, CellState.FLAG):
             # Reward for opening a usefull cell
-            reward += 1
+            reward += 1.0
 
         # Check if terminated
         terminated = False
         if self._game_state == GameState.WIN:
             print("BIG WIN !!!")
             terminated = True
-            reward += 20
+            reward += 20.0
         elif self._game_state == GameState.LOST:
             terminated = True
-            reward -= 10
+            reward -= 10.0
 
         # Check if truncated
         truncated = False
@@ -125,14 +151,16 @@ class MinesweepperEnv:
     def close_env(self):
         self._mf.end_session()
 
-    def _encode_state(self, grid):
-        """Separates the minefield into  matrixes, other contains numbered cells, other the unopened cells"""
+    def _encode_state(self, grid) -> NDArray:
+        """Separates the minefield into  matrixes, other contains numbered cells, other the unopened cells (and possible flags)"""
+
         encoded = np.zeros((2, self._height, self._width), dtype=np.float32)
-
         grid = np.array(grid)
-
         encoded[0] = np.where(grid < 9, grid / 8.0, 0)
-        encoded[1] = (grid == 9).astype(np.float32)
+        encoded[1] = (grid == CellState.UNOPENED.num()).astype(np.float32)
+
+        if self._flags_allowed:
+            encoded = np.append(encoded, [(grid == CellState.FLAG.num()).astype(np.float32)], axis=0)
 
         return encoded
 
@@ -156,15 +184,18 @@ class Memory(list):
 
 
 class ConvolutionalNet(nn.Module):
-    def __init__(self):
+    def __init__(self, flags_allowed: bool):
         super().__init__()
 
-        self.conv1 = nn.Conv2d(2, 16, kernel_size=3, padding=1)
+        in_channels = 3 if flags_allowed else 2
+        out_channels = 2 if flags_allowed else 1
+
+        self.conv1 = nn.Conv2d(in_channels, 16, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
         self.conv3 = nn.Conv2d(32, 32, kernel_size=3, padding=1)
         self.conv4 = nn.Conv2d(32, 32, kernel_size=3, padding=1)
 
-        self.out = nn.Conv2d(32, 1, kernel_size=1)
+        self.out = nn.Conv2d(32, out_channels, kernel_size=1)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -186,7 +217,8 @@ class DQL:
         gamma: float,
         lr: float,
         w_interval: int,
-        state: str = "",
+        flags_allowed: bool,
+        save_model: bool,
         env_args: List = [],
         env_kwargs: dict = {},
     ):
@@ -210,16 +242,18 @@ class DQL:
         self._gamma = gamma
         self._lr = lr
         self._w_interval = w_interval
+        self._flags_allowed = flags_allowed
+        self._save_model = save_model
 
-        self._env = MinesweepperEnv(*env_args, **env_kwargs)
+        self._env = MinesweepperEnv(*env_args, flags_allowed=flags_allowed, **env_kwargs)
 
         self._set_rnd_seed()
 
         self._n_actions = self._env.n_actions
         self._dim_obs_space = self._env.obs_dim
 
-        self._policy_net = ConvolutionalNet()
-        self._target_net = ConvolutionalNet()
+        self._policy_net = ConvolutionalNet(flags_allowed)
+        self._target_net = ConvolutionalNet(flags_allowed)
 
         self._update_target_net()
 
@@ -227,9 +261,13 @@ class DQL:
         self._steps_taken = 0
         self._episodes_ran = 0
 
+        self._flagging_prob = self._env._n_mines / (self._env._width * self._env._height)
+
         self._plotter = Plotter()
 
     def save_model(self):
+        if not self._save_model:
+            return
         state = {
             "episodes_ran": self._episodes,
             "state_dict_policy": self._policy_net.state_dict(),
@@ -258,18 +296,34 @@ class DQL:
     def _select_action(self, state: torch.Tensor):
         """Chooses an action in the given state using an epsilon greedy strategy."""
         if np.random.random() < self._epsilon(self._steps_taken):
-            # Random action
-            viable_actions = state[0][1].nonzero()
-            action_xy = viable_actions[np.random.choice(len(viable_actions))]
-            ind = self._env.actions.index((int(action_xy[1].item()), int(action_xy[0].item())))  # type: ignore
+            # Take random action
+
+            unopened_cells = state.squeeze(0)[1]
+            viable_xy = unopened_cells.nonzero()
+            action_xy = viable_xy[np.random.choice(len(viable_xy))]
+            x = int(action_xy[1].item())
+            y = int(action_xy[0].item())
+
+            if self._flags_allowed and np.random.random() < self._flagging_prob:
+                ind = self._env.actions.index((Op.FLAG, x, y))  # type: ignore
+            else:
+                ind = self._env.actions.index((Op.OPEN, x, y))  # type: ignore
+
             return torch.tensor([[ind]], dtype=torch.int32, device=self._device)
+
         # Choose the action that maximises the future rewards according to the policy network
         with torch.no_grad():
-            output: torch.Tensor = self._policy_net(state)
-            output.masked_fill_(state[0][1].bool().logical_not_().flatten(), float("-inf"))
-            return output.max(1).indices.view(1, 1)
+            output: torch.Tensor = self._policy_net(state).squeeze(0)
 
-    def _optim_batch(self, memory):
+        mask_not_unopened = state.squeeze(0)[1].bool().logical_not_().flatten()
+
+        if self._flags_allowed:
+            mask_not_unopened = torch.cat((mask_not_unopened, mask_not_unopened))
+
+        output.masked_fill_(mask_not_unopened, float("-inf"))
+        return output.max(0).indices.view(1, 1)
+
+    def _optim_batch(self, memory: Memory):
         """Performs one round of backpropagation and optimization"""
         if len(memory) < self._batch_size:
             return
@@ -373,33 +427,3 @@ class Plotter:
             plt.plot(self.mav)
 
         plt.pause(0.001)
-
-
-"""if __name__ == "__main__":
-    plt.ion()
-
-    env_args = [9, 9, 10]
-
-    batch_size = 128
-    episodes = 200
-
-    def epsilon(step: int):
-        start = 0.9
-        end = 0.01
-        tc = 1000
-        return end + (start - end) * np.exp(-step / tc)
-
-    gamma = 0.99
-    lr = 0.0003
-    w_update_interval = 1000
-
-    agent = DQL(episodes, batch_size, epsilon, gamma, lr, w_update_interval, env_args=env_args)
-
-    try:
-        a = agent.train()
-    except Exception as e:
-        agent._env.close_env()
-        raise e
-
-    plt.ioff()
-    plt.show()"""
