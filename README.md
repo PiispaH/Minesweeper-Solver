@@ -11,7 +11,8 @@ Clone the repository and run
 ```
 pip install .
 ```
-to install the dependencies. Also follow [these](https://pytorch.org/get-started/locally/) instructions to install pytorch.
+with a fresh virtual environment to install the dependencies.
+Also follow [these](https://pytorch.org/get-started/locally/) instructions to install pytorch.
 
 Run the command
 ```
