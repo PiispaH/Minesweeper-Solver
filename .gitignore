@@ -1,4 +1,8 @@
 .*
 !.gitignore
+
 scratch.py
+
 *.prof
+
+*.egg-info

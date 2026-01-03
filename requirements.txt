@@ -1,9 +1,0 @@
-black
-isort
-selenium
-numpy
-screeninfo
-pillow
-pynput
-typer
-matplotlib

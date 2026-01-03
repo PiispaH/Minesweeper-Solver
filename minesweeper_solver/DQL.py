@@ -1,7 +1,7 @@
 from collections import namedtuple
+from enum import Enum
 from functools import wraps
 from itertools import product
-from enum import Enum
 import os
 import random
 from typing import Callable, List
@@ -46,12 +46,10 @@ class MinesweepperEnv:
         mines: int = 0,
         state: str = "",
         flags_allowed: bool = False,
-        headless=False,
-        *args,
-        **kwargs,
+        headless: bool = False,
     ):
         self._state = state
-        self._mf = MineField(headless, width, height, mines, state=state, *args, **kwargs)
+        self._mf = MineField(headless, width, height, mines, state=state)
 
         self._height = self._mf.height
         self._width = self._mf.width
@@ -146,7 +144,15 @@ class MinesweepperEnv:
         if self._clicks == self._height * self._width - self._n_mines:
             truncated = True
 
-        return self._encode_state(self._grid), reward, terminated, truncated
+        next_state = self._encode_state(self._grid)
+
+        # If all remaining cells are flagged, but game is not won
+        if self._mines_left <= 0:
+            print("too many mines")
+            terminated = True
+            reward -= 5.0
+
+        return next_state, reward, terminated, truncated
 
     def close_env(self):
         self._mf.end_session()

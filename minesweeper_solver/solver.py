@@ -1,7 +1,7 @@
 from itertools import product
 import os
 from random import choice
-from time import time, sleep
+from time import sleep, time
 from typing import Set, Tuple
 import numpy as np
 from numpy.typing import NDArray

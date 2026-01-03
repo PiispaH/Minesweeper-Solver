@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import typer
+from .utils import get_gamestate
 
 app = typer.Typer()
 
@@ -30,8 +31,8 @@ def train_dql(flags: bool = False, save: bool = True):
     lr = 0.0003
     w_update_interval = 300
 
-    env_args = [9, 9, 10]
-    env_kwargs = {}
+    env_args = []  # [9, 9, 10]
+    env_kwargs = {"state": get_gamestate(1)}
 
     agent = DQL(
         episodes,

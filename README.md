@@ -9,15 +9,19 @@ inherit from the base class and implement only the `_run()` method, that contain
 
 Clone the repository and run
 ```
-pip install -r requirements.txt
+pip install .
 ```
 to install the dependencies. Also follow [these](https://pytorch.org/get-started/locally/) instructions to install pytorch.
 
 Run the command
 ```
-./main.py --help
+msolver --help
 ```
-for instructions on how to run the solvers.
+for information on the available commands, and
+```
+msolver command --help
+```
+for information on individual commands.
 
 ## Solvers
 
