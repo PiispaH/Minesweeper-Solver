@@ -1,10 +1,10 @@
 from collections import namedtuple
+from datetime import datetime
 from enum import Enum
 from functools import wraps
 from itertools import product
 import os
 import random
-from datetime import datetime
 from typing import Callable, List
 import matplotlib.pyplot as plt
 import numpy as np
@@ -288,7 +288,7 @@ class DQL:
         torch.save(state, os.path.join("models", f"model_{timestamp}.pt"))
 
     def load_model(self, filepath):
-        state = torch.load(os.path.join("models", "model.pt"))
+        state = torch.load(filepath)
         self._policy_net.load_state_dict(state["state_dict_policy"])
         self._target_net.load_state_dict(state["state_dict_target"])
         self._optimizer.load_state_dict(state["optimizer"])

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 import os
-import typer
 from typing import Annotated, Any
+import typer
 from .utils import get_gamestate
 
 
