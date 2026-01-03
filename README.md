@@ -2,7 +2,7 @@
 
 Contains solvers and a framework for easily building new ones. The SolverBase -class takes care of
 starting a new game and handling the interactions with it. At its simplest, a new solver can just
-inherit from the base class and implement only the `_run()` method, that contains the solver loop.
+inherit from the base class and implement only the `_step()` method, that contains the solver logic.
 
 
 ## Usage

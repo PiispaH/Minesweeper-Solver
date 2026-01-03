@@ -4,6 +4,7 @@ from functools import wraps
 from itertools import product
 import os
 import random
+from datetime import datetime
 from typing import Callable, List
 import matplotlib.pyplot as plt
 import numpy as np
@@ -129,6 +130,10 @@ class MinesweepperEnv:
             # Reward for opening a usefull cell
             reward += 1.0
 
+        if cell_after == CellState.FLAG:
+            # Should see here if it was a valid choice, hardcoded punishment for now
+            reward -= 5.0
+
         # Check if terminated
         terminated = False
         if self._game_state == GameState.WIN:
@@ -138,6 +143,10 @@ class MinesweepperEnv:
         elif self._game_state == GameState.LOST:
             terminated = True
             reward -= 10.0
+        elif self._mines_left <= 0:  # Too many mines flagged and now stuck
+            print("too many mines")
+            terminated = True
+            reward -= 20.0
 
         # Check if truncated
         truncated = False
@@ -145,12 +154,6 @@ class MinesweepperEnv:
             truncated = True
 
         next_state = self._encode_state(self._grid)
-
-        # If all remaining cells are flagged, but game is not won
-        if self._mines_left <= 0:
-            print("too many mines")
-            terminated = True
-            reward -= 5.0
 
         return next_state, reward, terminated, truncated
 
@@ -219,7 +222,7 @@ class DQL:
         self,
         episodes: int,
         batch_size: int,
-        epsilon: Callable,
+        epsilon: Callable[[int], float],
         gamma: float,
         lr: float,
         w_interval: int,
@@ -279,15 +282,18 @@ class DQL:
             "state_dict_policy": self._policy_net.state_dict(),
             "state_dict_target": self._target_net.state_dict(),
             "optimizer": self._optimizer.state_dict(),
+            "flags_allowed": self._flags_allowed,
         }
-        torch.save(state, os.path.join("data", "model.pt"))
+        timestamp = datetime.now().replace(microsecond=0).strftime("%Y%m%d_%H%M%S")
+        torch.save(state, os.path.join("models", f"model_{timestamp}.pt"))
 
-    def load_model(self):
-        state = torch.load(os.path.join("data", "model.pt"))
+    def load_model(self, filepath):
+        state = torch.load(os.path.join("models", "model.pt"))
         self._policy_net.load_state_dict(state["state_dict_policy"])
         self._target_net.load_state_dict(state["state_dict_target"])
         self._optimizer.load_state_dict(state["optimizer"])
         self._episodes_ran = state["episodes_ran"]
+        self._flags_allowed = state["flags_allowed"]
 
     def _update_target_net(self):
         """Updates the target net to match the policy net"""

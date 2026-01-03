@@ -1,7 +1,7 @@
 from itertools import product
 import os
-from random import choice
-from time import sleep, time
+from random import choice, randint
+from time import time
 from typing import Set, Tuple
 import numpy as np
 from numpy.typing import NDArray
@@ -22,11 +22,9 @@ class SolverBase:
 
         self._headless = headless
 
-    def _open_cell(self, x: int, y: int, slow: bool = False):
+    def _open_cell(self, x: int, y: int):
         """Opens the cell with the given indices"""
         self._mf.open_cell(x, y)
-        if not self._headless and slow:
-            sleep(3.0)
 
     def _flag_cell(self, x: int, y: int):
         """Flags the cell with the given indices"""
@@ -42,17 +40,32 @@ class SolverBase:
         self._mf.restart()
         self._open_cell(self._mf.width // 2, self._mf.height // 2)
 
-    def run(self, max_tries: int = 0) -> float:
+    def run(self, max_tries: int) -> float:
         """Starts up the solver
 
         Args:
             max_tries: The amount of games the solver will play before quitting. No limit with value 0.
         """
         self._open_cell(self._mf.width // 2, self._mf.height // 2)
-        ret = self._run(max_tries)
-        return ret
 
-    def _run(self, max_tries: int) -> float:
+        tries = 0
+        start = time()
+        while True:
+            if tries == max_tries:
+                print("Didn't win this time.")
+                return 0.0
+
+            self._step()
+
+            if self._check_if_lost():
+                tries += 1
+                start = time()
+                self._new_game()
+            elif self._check_if_won():
+                print("Win!!!")
+                return time() - start
+
+    def _step(self):
         """This method should be overwritten to provide the solver logic"""
         raise NotImplementedError
 
@@ -62,22 +75,10 @@ class SolverBase:
 
 class SolverRandom(SolverBase):
 
-    def _run(self, max_tries: int):
+    def _step(self):
         """Just randomly clicks"""
-        from random import randint
 
-        tries = max_tries if max_tries else 1_000_000
-        start = time()
-        for _ in range(tries):
-            self._open_cell(randint(0, self._mf.width), randint(0, self._mf.height))
-            if self._check_if_lost():
-                self._new_game()
-                start = time()
-                continue
-            if self._check_if_won():
-                print("How did this happen...")
-                break
-        return time() - start
+        self._open_cell(randint(0, self._mf.width), randint(0, self._mf.height))
 
 
 class SolverNaive(SolverBase):
@@ -87,11 +88,20 @@ class SolverNaive(SolverBase):
         super().__init__(*args, **kwargs)
         self._no_need_to_check = set()  # A set of indices that contain no information anymore
         self._current_grid = self._mf.get_grid()
+        self._odds = 1
 
     def _new_game(self):
         super()._new_game()
         self._no_need_to_check = set()
         self._current_grid = self._mf.get_grid()
+        self._odds = 1
+        print()
+
+    def _check_if_won(self):
+        won = super()._check_if_won()
+        if won:
+            print(f"Odds of winning this game: {self._odds*100:.2f}%")
+        return won
 
     def _informative_numbered_cells(self):
         """Returns the indices of cells with values 1-8 that have larger amount of unopened near than their value."""
@@ -117,8 +127,6 @@ class SolverNaive(SolverBase):
                     continue
                 else:
                     maybe.add((x, y))
-                    # print(self._mf.get_grid())
-                    # raise ValueError(f"What are we doing here??? {x, y}")
 
         return certain_safe, certain_bombs, maybe
 
@@ -134,7 +142,8 @@ class SolverNaive(SolverBase):
         unopened = list(self._get_nbr_inds_of_types(*lowest[1:], CellState.UNOPENED))
         rndm = choice(unopened)
         print(f"With {lowest[0]:.3f} probability of failure, opening cell {rndm}")
-        self._open_cell(*rndm, slow=True)
+        self._odds *= 1 - lowest[0]
+        self._open_cell(*rndm)
 
     def _neighbourhood_mine_ratio(self, x: int, y: int) -> float:
         """The naive likelyhood of a random click on a neighbour ending up as a mine"""
@@ -213,87 +222,54 @@ class SolverNaive(SolverBase):
                 if self._check_if_lost():
                     raise SystemExit(f"Lost due to a mistake near cell x={i} y={j}.")
 
-    def _run(self, max_tries: int):
-        """Runs the solver"""
+    def _step(self):
+        """Looks at 3x3 neighbourhoods to open or flag, if that is not possible, opens the safest cell by chance."""
 
-        tries = max_tries if max_tries else 1_000_000
-        start = time()
-        for t in range(tries):
-            self._current_grid = self._mf.get_grid()
-            possibly_safe, certain_minefields, maybe = self._informative_numbered_cells()
-            # Because openings aren't checked for often enough, empty clicks occur
-
-            if self._check_if_won():
-                break
-
-            self._handle_all_mines(certain_minefields)
-            self._handle_safe_cells(possibly_safe)
-
-            changed = bool(possibly_safe | certain_minefields)
-
-            if not changed:
-                self._select_the_safest_bet(maybe)
-                if self._check_if_lost():
-                    start = time()
-                    self._new_game()
-                    print("\nNew game")
-
-            if self._check_if_won():
-                print("Win!!!")
-                break
-        return time() - start
-
-    def print_grid(self, grid):
-        print()
-        for row in grid:
-            print(row, end="\n\n\n")
-        print()
+        self._current_grid = self._mf.get_grid()
+        possibly_safe, certain_minefields, maybe = self._informative_numbered_cells()
+        self._handle_all_mines(certain_minefields)
+        self._handle_safe_cells(possibly_safe)
+        changed = bool(possibly_safe | certain_minefields)
+        if not changed:
+            self._select_the_safest_bet(maybe)
 
 
 class SolverDQL(SolverBase):
     """A reinforcement model trained with a 9x9 grid with 10 mines, aka beginner mode."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if not os.path.exists(os.path.join("data", "model.pt")):
-            raise FileNotFoundError("File model.pt not found. Train a DQL model first.")
+    def __init__(self, filepath, **kwargs):
+        super().__init__(**kwargs)
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"File {filepath} not found. Train a DQL model first.")
 
-        state = torch.load(os.path.join("data", "model.pt"))
-        self._cnn = ConvolutionalNet(False)
+        state = torch.load(os.path.join(filepath))
+        self._flags_allowed = state["flags_allowed"]
+
+        self._cnn = ConvolutionalNet(self._flags_allowed)
         self._cnn.load_state_dict(state["state_dict_policy"])
         self._actions = [(x, y) for y, x in product(range(kwargs["width"]), range(kwargs["height"]))]
 
-    def _take_action(self):
+    def _step(self):
         grid = np.array(self._mf.get_grid())
-
         encoded = np.zeros((2, grid.shape[0], grid.shape[1]), dtype=np.float32)
-
         encoded[0] = np.where(grid < 9, grid / 8.0, 0)
-        encoded[1] = (grid == 9).astype(np.float32)
+        encoded[1] = (grid == CellState.UNOPENED.num()).astype(np.float32)
+
+        mask = torch.tensor((encoded[1] == 0).flatten(), dtype=torch.bool, device="cpu")
+        if self._flags_allowed:
+            encoded = np.append(encoded, [(grid == CellState.FLAG.num()).astype(np.float32)], axis=0)
+            mask = torch.cat((mask, mask))
 
         encoded = torch.tensor(encoded, dtype=torch.float32, device="cpu").unsqueeze(0)
 
         output: torch.Tensor = self._cnn(encoded)
-        output.masked_fill_(encoded[0][1].bool().logical_not_().flatten(), float("-inf"))
+        output.masked_fill_(mask, float("-inf"))
         a = output.max(1).indices.view(1, 1)
 
-        action = self._actions[a]
-
-        self._open_cell(action[0], action[1])
-
-    def _run(self, max_tries: int):
-        tries = max_tries if max_tries else 1_000_000
-        start = time()
-        for t in range(tries):
-            self._take_action()
-
-            if self._check_if_lost():
-                self._new_game()
-                start = time()
-            elif self._check_if_won():
-                print("Win!!!")
-                break
-        else:
-            print("Didn't win this time...")
-            return 0.0
-        return time() - start
+        try:
+            action = self._actions[a]
+            self._open_cell(action[0], action[1])
+        except IndexError:
+            n_cells = grid.shape[0] * grid.shape[1]
+            action = self._actions[a - n_cells]
+            self._flag_cell(action[0], action[1])

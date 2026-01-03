@@ -6,3 +6,7 @@ scratch.py
 *.prof
 
 *.egg-info
+
+models/*
+!models/model_flags.pt
+!models/model_no_flags.pt
