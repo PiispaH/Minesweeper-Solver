@@ -7,7 +7,7 @@ import numpy as np
 from numpy.typing import NDArray
 import torch
 from .DQL import ConvolutionalNet
-from .minefield import CellState, GameState, MineField
+from .minefield import CellState, SmileyState, MineField
 
 
 class SolverBase:
@@ -31,10 +31,10 @@ class SolverBase:
         self._mf.flag_cell(x, y)
 
     def _check_if_won(self):
-        return self._mf.get_gamestate() == GameState.WIN
+        return self._mf.get_gamestate() == SmileyState.WIN
 
     def _check_if_lost(self):
-        return self._mf.get_gamestate() == GameState.LOST
+        return self._mf.get_gamestate() == SmileyState.LOST
 
     def _new_game(self):
         self._mf.restart()

@@ -6,7 +6,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 
-class GameState(Enum):
+class SmileyState(Enum):
     """Enumeration for the possible states of the cells"""
 
     PLAYING = "facesmile"
@@ -16,7 +16,7 @@ class GameState(Enum):
     OOH = "faceooh"
 
     def __repr__(self) -> str:
-        return str([i.value for i in GameState].index(self.value))
+        return str([i.value for i in SmileyState].index(self.value))
 
     def __str__(self) -> str:
         return f"{self.name}"
@@ -302,7 +302,7 @@ class MineField:
         res = self._driver.execute_script(s)
         before = CellState(res["cell_before"])
         after = CellState(res["cell_after"])
-        game_state = GameState(res["game_state"])
+        game_state = SmileyState(res["game_state"])
         grid = [[CellState(c).num() for c in row] for row in res["grid"]]
         mines_left = res["mines_left"]
         seconds = res["seconds"]
@@ -327,7 +327,7 @@ class MineField:
 
     def get_gamestate(self):
         """Returns the gamestate"""
-        return GameState(str(self._face.get_attribute("class")))
+        return SmileyState(str(self._face.get_attribute("class")))
 
     def get_cell_state(self, x: int, y: int):
         """Returns the cells state at the given coordinates"""

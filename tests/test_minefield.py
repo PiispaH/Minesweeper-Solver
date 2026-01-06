@@ -1,5 +1,5 @@
 import unittest
-from minesweeper_solver.minefield import CellState, GameState, MineField
+from minesweeper_solver.minefield import CellState, SmileyState, MineField
 from minesweeper_solver.utils import get_gamestate
 
 
@@ -54,7 +54,7 @@ class TestMineField(unittest.TestCase):
         self.assertEqual(cell_before, CellState.UNOPENED)
         self.assertEqual(cell_after, CellState.CELL_1)
         self.assertEqual(grid, expected_grid)
-        self.assertEqual(game_state, GameState.PLAYING)
+        self.assertEqual(game_state, SmileyState.PLAYING)
         self.assertTrue(isinstance(mines, int))
         self.assertEqual(mines, 10)
         self.assertTrue(isinstance(seconds, int))

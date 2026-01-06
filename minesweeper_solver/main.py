@@ -43,8 +43,8 @@ def train_dql(episodes: episodes_type = 5000, flags: flags_type = False, save: s
     lr = 0.0003
     w_update_interval = 300
 
-    env_args = []  # [9, 9, 10]
-    env_kwargs = {"state": get_gamestate(1)}
+    env_args = [9, 9, 10]
+    env_kwargs = {}  # {"state": get_gamestate(1)}
 
     agent = DQL(
         episodes,
