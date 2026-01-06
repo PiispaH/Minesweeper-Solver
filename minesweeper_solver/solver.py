@@ -235,7 +235,7 @@ class SolverNaive(SolverBase):
 
 
 class SolverDQL(SolverBase):
-    """A reinforcement model trained with a 9x9 grid with 10 mines, aka beginner mode."""
+    """A reinforcement learning model trained with a 9x9 grid with 10 mines, aka beginner mode."""
 
     def __init__(self, filepath, **kwargs):
         super().__init__(**kwargs)
