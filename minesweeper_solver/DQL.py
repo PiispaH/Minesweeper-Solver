@@ -51,54 +51,70 @@ class MinesweeperEnv:
 
         self._flags_allowed = flags_allowed
 
-        operations = [Action.OPEN, Action.OPEN] if self._flags_allowed else [Action.OPEN]
+        self._available_actions = [Action.OPEN, Action.FLAG] if self._flags_allowed else [Action.OPEN]
 
         self.actions = [
-            Interaction(x, y, act) for act, y, x in product(operations, range(self._height), range(self._width))
+            Interaction(x, y, act)
+            for act, y, x in product(self._available_actions, range(self._height), range(self._width))
         ]
         self.n_actions = len(self.actions)
 
         # These change
         self._grid = 9 * np.ones((height, width), dtype=np.int64)
         self._visible = 9 * np.ones((height, width), dtype=np.int64)
-        self._unopened = None
-        self._flagged = None
         self._clicks = 0
+
+    @property
+    def unopened(self) -> NDArray:
+        return self._ms._unopened
+
+    @property
+    def flagged(self) -> NDArray:
+        return self._ms._flagged
+
+    @property
+    def gamestate(self) -> GameState:
+        return self._ms.gamestate
 
     def take_action(self, act: Interaction):
         """Takes the specified action and returns the resulting information"""
+        if act.action not in self._available_actions:
+            raise ValueError(f"inproper action: {act.action}")
+
         cell_before = self._visible[act.y][act.x]
-        if self._ms.gamestate == GameState.NOT_STARTED:
-            minefield, unopened, flagged, _ = self._ms.make_interaction(act)
+        if self.gamestate == GameState.NOT_STARTED:
+            minefield, *_ = self._ms.make_interaction(act)
             for j, row in enumerate(minefield):
                 for i, value in enumerate(row):
                     self._grid[j][i] = value.num()
-        elif self._ms.gamestate == GameState.PLAYING:
-            _, unopened, flagged, _ = self._ms.make_interaction(act)
-        elif self._ms.gamestate == GameState.LOST:
-            self._game_state = GameState.LOST
-            return None, cell_before, CellState.MINE
+
+        elif self.gamestate == GameState.PLAYING:
+            _ = self._ms.make_interaction(act)
+
         else:
-            print(self._ms.gamestate)
-            raise Exception("Must think this one through.")
+            raise Exception(f"Something unexpected happened: gamestate={self.gamestate}, interaction={act}.")
+
+        if self.gamestate == GameState.LOST:
+            return None, cell_before, CellState.MINE
 
         cell_before = self._visible[act.y][act.x]
 
-        self._visible = np.where(unopened, 0, self._grid)
-        self._state = np.concat([self._visible, unopened, flagged])
+        self._visible = np.where(self.unopened, CellState.UNOPENED.num(), self._grid)
+        self._visible = np.where(self.flagged, CellState.FLAG.num(), self._visible)
+        self._state = np.concat([self._visible, self.unopened, self.flagged])
 
         cell_after = self._visible[act.y][act.x]
 
-        return self._encode_state(unopened, flagged), cell_before, cell_after
+        return self._encode_state(), cell_before, cell_after
 
     def reset(self):
         """Restarts the game."""
         self._ms._new_game()
         self._clicks = 0
-        self._grid.fill(9)
-        self._visible.fill(9)
+        self._grid.fill(CellState.UNOPENED.num())
+        self._visible.fill(CellState.UNOPENED.num())
         self._game_state = GameState.PLAYING
-        return self._encode_state(self._ms._unopened, self._ms._flagged)
+        return self._encode_state()
 
     def step(self, action_ind: int):
         """Makes the given action and calculate the reward.d
@@ -137,11 +153,11 @@ class MinesweeperEnv:
 
         # Check if terminated
         terminated = next_state is None
-        if self._game_state == GameState.WON:
+        if self.gamestate == GameState.WON:
             print("BIG WIN !!!")
             terminated = True
             reward += 20.0
-        elif self._game_state == GameState.LOST:
+        elif self.gamestate == GameState.LOST:
             terminated = True
             reward -= 10.0
 
@@ -152,15 +168,18 @@ class MinesweeperEnv:
 
         return next_state, reward, terminated, truncated
 
-    def _encode_state(self, unopened, flagged) -> NDArray:
-        """Separates the minefield into  matrixes, other contains numbered cells, other the unopened cells (and possible flags)"""
+    def _encode_state(self) -> NDArray[np.float32]:
+        """Returns the viisble information about the gamestate
 
+        The first matrix in the returned array contains the currently visible numbered cells, the second contains the unopened cells,
+        and the third one contains the flagged cells.
+        """
         encoded = np.zeros((2, self._height, self._width), dtype=np.float32)
-        encoded[0] = np.where(self._grid < 9, self._grid / 8.0, 0)
-        encoded[1] = unopened.astype(np.float32)
+        encoded[0] = np.where((self._grid < 9) & np.logical_not(self.unopened), self._grid / 8.0, 0)
+        encoded[1] = self.unopened.astype(np.float32)
 
         if self._flags_allowed:
-            encoded = np.append(encoded, [flagged.astype(np.float32)], axis=0)
+            encoded = np.append(encoded, [self.flagged.astype(np.float32)], axis=0)  # type: ignore
 
         return encoded
 
