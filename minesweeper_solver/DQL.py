@@ -82,17 +82,14 @@ class MinesweeperEnv:
             raise ValueError(f"inproper action: {act.action}")
 
         cell_before = self._visible[act.y][act.x]
+
         if self.gamestate == GameState.NOT_STARTED:
-            minefield, *_ = self._ms.make_interaction(act)
-            for j, row in enumerate(minefield):
+            self._ms.make_interaction(act)
+            for j, row in enumerate(self._ms.get_grid()):
                 for i, value in enumerate(row):
                     self._grid[j][i] = value.num()
-
         elif self.gamestate == GameState.PLAYING:
-            _ = self._ms.make_interaction(act)
-
-        else:
-            raise Exception(f"Something unexpected happened: gamestate={self.gamestate}, interaction={act}.")
+            self._ms.make_interaction(act)
 
         if self.gamestate == GameState.LOST:
             return None, cell_before, CellState.MINE
