@@ -4,9 +4,10 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from minesweeper import CellState
 
 
-class GameState(Enum):
+class SmileyState(Enum):
     """Enumeration for the possible states of the cells"""
 
     PLAYING = "facesmile"
@@ -16,44 +17,10 @@ class GameState(Enum):
     OOH = "faceooh"
 
     def __repr__(self) -> str:
-        return str([i.value for i in GameState].index(self.value))
+        return str([i.value for i in SmileyState].index(self.value))
 
     def __str__(self) -> str:
         return f"{self.name}"
-
-
-class CellState(Enum):
-    CELL_0 = "square open0"
-    CELL_1 = "square open1"
-    CELL_2 = "square open2"
-    CELL_3 = "square open3"
-    CELL_4 = "square open4"
-    CELL_5 = "square open5"
-    CELL_6 = "square open6"
-    CELL_7 = "square open7"
-    CELL_8 = "square open8"
-    UNOPENED = "square blank"
-    MINE = "square bombrevealed"
-    FLAG = "square bombflagged"
-    BOMBDEATH = "square bombdeath"
-    MISFLAG_MINE = "square bombmisflagged"
-    WALL = "wall"
-
-    def __repr__(self) -> str:
-        """"""
-        if self == CellState.MINE:
-            s = "B"
-        elif self == CellState.FLAG:
-            s = "F"
-        else:
-            s = str(self.num())
-        return s
-
-    def __str__(self) -> str:
-        return f"{self.name}"
-
-    def num(self) -> int:
-        return [i.value for i in CellState].index(self.value)
 
 
 class MineField:
@@ -302,7 +269,7 @@ class MineField:
         res = self._driver.execute_script(s)
         before = CellState(res["cell_before"])
         after = CellState(res["cell_after"])
-        game_state = GameState(res["game_state"])
+        game_state = SmileyState(res["game_state"])
         grid = [[CellState(c).num() for c in row] for row in res["grid"]]
         mines_left = res["mines_left"]
         seconds = res["seconds"]
@@ -327,7 +294,7 @@ class MineField:
 
     def get_gamestate(self):
         """Returns the gamestate"""
-        return GameState(str(self._face.get_attribute("class")))
+        return SmileyState(str(self._face.get_attribute("class")))
 
     def get_cell_state(self, x: int, y: int):
         """Returns the cells state at the given coordinates"""

@@ -1,106 +1,120 @@
 from collections import namedtuple
 from datetime import datetime
-from enum import Enum
 from functools import wraps
 from itertools import product
 import os
 import random
-from typing import Callable, List
+from typing import Callable, List, Tuple, Union
 import matplotlib.pyplot as plt
+from minesweeper import Action, CellState, GameState, Interaction, MinesweeperHeadless
 import numpy as np
 from numpy.typing import NDArray
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from .minefield import CellState, GameState, MineField
 
 
-def exit_env(func):
+def exit_training(func):
 
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         try:
             func(self, *args, **kwargs)
-        finally:
-            self._env.close_env()
+        except (Exception, KeyboardInterrupt) as e:
+            self.save_model()
+            raise e
 
     return wrapper
-
-
-class Op(Enum):
-    OPEN = 0
-    FLAG = 2
 
 
 ActionTuple = namedtuple("Action", ["op", "x", "y"])
 Transition = namedtuple("Transition", ["state", "action", "reward", "next_state"])
 
 
-class MinesweepperEnv:
+class MinesweeperEnv:
     """Provides the environment for the RL agent"""
 
     def __init__(
         self,
-        height: int = 0,
-        width: int = 0,
-        mines: int = 0,
-        state: str = "",
+        height: int = 9,
+        width: int = 9,
+        n_mines: int = 10,
+        rnd_seed: Union[int, None] = None,
         flags_allowed: bool = False,
-        headless: bool = False,
     ):
-        self._state = state
-        self._mf = MineField(headless, width, height, mines, state=state)
+        self._ms = MinesweeperHeadless(width, height, n_mines, rnd_seed=rnd_seed)
 
-        self._height = self._mf.height
-        self._width = self._mf.width
-        self._n_mines = self._mf._n_mines
+        self._height = height
+        self._width = width
+        self._n_mines = n_mines
 
         self._flags_allowed = flags_allowed
 
-        operations = list(Op) if self._flags_allowed else [Op.OPEN]
+        self._available_actions = [Action.OPEN, Action.FLAG] if self._flags_allowed else [Action.OPEN]
 
         self.actions = [
-            ActionTuple(op, x, y) for op, y, x in product(operations, range(self._height), range(self._width))
+            Interaction(x, y, act)
+            for act, y, x in product(self._available_actions, range(self._height), range(self._width))
         ]
         self.n_actions = len(self.actions)
-        self.obs_dim = self._height * self._width
 
         # These change
-        self._grid = self._mf.initial_grid
-        self._game_state = GameState.PLAYING
-        self._mines_left = self._mf.initial_mines_left
-        self._seconds = self._mf.initial_seconds
-        self._clicks = 0
+        self._grid = 9 * np.ones((height, width), dtype=np.int64)
+        self._visible = 9 * np.ones((height, width), dtype=np.int64)
+        self._n_actions_taken = 0
 
-    def take_action(self, op: Op, x: int, y: int):
-        """Takes the specified action and returns the resulting information"""
-        out = self._mf.execute_action_and_get_info(x, y, op.value)
+    @property
+    def unopened(self) -> NDArray:
+        return self._ms._unopened
 
-        cell_before = out[0]
-        cell_after = out[1]
-        self._grid = out[2]
-        self._game_state = out[3]
-        self._mines_left = out[4]
-        self._seconds = out[5]
+    @property
+    def flagged(self) -> NDArray:
+        return self._ms._flagged
+
+    @property
+    def gamestate(self) -> GameState:
+        return self._ms.gamestate
+
+    def take_action(self, act: Interaction) -> Tuple[int, int]:
+        """Takes the specified action and returns the state of the affected cell before and after"""
+        if act.action not in self._available_actions:
+            raise ValueError(f"inproper action: {act.action}")
+
+        cell_before = self._visible[act.y][act.x]
+
+        if self.gamestate == GameState.NOT_STARTED:
+            self._ms.make_interaction(act)
+            for j, row in enumerate(self._ms.get_grid()):
+                for i, value in enumerate(row):
+                    self._grid[j][i] = value.num()
+        elif self.gamestate == GameState.PLAYING:
+            self._ms.make_interaction(act)
+
+        if self.gamestate == GameState.LOST:
+            return cell_before, CellState.MINE.num()
+
+        cell_before = self._visible[act.y][act.x]
+
+        self._visible = np.where(self.unopened, CellState.UNOPENED.num(), self._grid)
+        self._visible = np.where(self.flagged, CellState.FLAG.num(), self._visible)
+        self._state = np.concat([self._visible, self.unopened, self.flagged])
+
+        cell_after = self._visible[act.y][act.x]
 
         return cell_before, cell_after
 
     def reset(self):
         """Restarts the game."""
-        if self._state:
-            self._mf._import_gamestate()
-        else:
-            self._mf.restart()
-        self._clicks = 0
-        self._grid = self._mf.initial_grid
+        self._ms._new_game()
+        self._n_actions_taken = 0
+        self._grid.fill(CellState.UNOPENED.num())
+        self._visible.fill(CellState.UNOPENED.num())
         self._game_state = GameState.PLAYING
-        self._mines_left = self._mf.initial_mines_left
-        self._seconds = self._mf.initial_seconds
-        return self._encode_state(self._mf.initial_grid)
+        return self._encode_state()
 
     def step(self, action_ind: int):
-        """Makes the given action and calculate the reward.
+        """Makes the given action and calculate the reward
 
         Logic for the reward:
 
@@ -109,24 +123,27 @@ class MinesweepperEnv:
         Win gets 100 points
         """
 
-        self._clicks += 1
+        self._n_actions_taken += 1
 
         reward = -0.5
 
         action = self.actions[action_ind]
-        op = action.op
+        act = action.action
         x = action.x
         y = action.y
 
-        cell_before, cell_after = self.take_action(op, x, y)
-
+        cell_before, cell_after = self.take_action(action)
+        next_state = self._encode_state()
         if cell_after == cell_before:
-            raise Exception(f"Useless selection! x={x}, y={y}, this shouldn't be possible.")
+            raise Exception(
+                f"Useless selection: x={x}, y={y}, act={act} on cell {cell_before}."
+                f"Happened on action Nr. {self._n_actions_taken}."
+            )
 
-        if cell_before == CellState.FLAG and op == Op.FLAG:
-            raise Exception(f"Tried to reflag x={x}, y={y}, this shouldn't be possible.")
+        if cell_before == CellState.FLAG and act == Action.FLAG:
+            raise Exception(f"Tried to deflag x={x}, y={y}, this shouldn't be possible.")
 
-        if cell_after not in (cell_before, CellState.BOMBDEATH, CellState.FLAG):
+        if cell_after not in (cell_before, CellState.MINE, CellState.FLAG):
             # Reward for opening a usefull cell
             reward += 1.0
 
@@ -135,41 +152,35 @@ class MinesweepperEnv:
             reward -= 5.0
 
         # Check if terminated
-        terminated = False
-        if self._game_state == GameState.WIN:
+        terminated = next_state is None
+        if self.gamestate == GameState.WON:
             print("BIG WIN !!!")
             terminated = True
             reward += 20.0
-        elif self._game_state == GameState.LOST:
+        elif self.gamestate == GameState.LOST:
             terminated = True
+            next_state = None
             reward -= 10.0
-        elif self._mines_left <= 0:  # Too many mines flagged and now stuck
-            print("too many mines")
-            terminated = True
-            reward -= 20.0
 
         # Check if truncated
         truncated = False
-        if self._clicks == self._height * self._width - self._n_mines:
+        if self._n_actions_taken == self._height * self._width - self._n_mines:
             truncated = True
-
-        next_state = self._encode_state(self._grid)
 
         return next_state, reward, terminated, truncated
 
-    def close_env(self):
-        self._mf.end_session()
+    def _encode_state(self) -> NDArray[np.float32]:
+        """Returns the viisble information about the gamestate
 
-    def _encode_state(self, grid) -> NDArray:
-        """Separates the minefield into  matrixes, other contains numbered cells, other the unopened cells (and possible flags)"""
-
+        The first matrix in the returned array contains the currently visible numbered cells, the second contains the unopened cells,
+        and the third one contains the flagged cells.
+        """
         encoded = np.zeros((2, self._height, self._width), dtype=np.float32)
-        grid = np.array(grid)
-        encoded[0] = np.where(grid < 9, grid / 8.0, 0)
-        encoded[1] = (grid == CellState.UNOPENED.num()).astype(np.float32)
+        encoded[0] = np.where((self._grid < 9) & np.logical_not(self.unopened), self._grid / 8.0, 0)
+        encoded[1] = self.unopened.astype(np.float32)
 
         if self._flags_allowed:
-            encoded = np.append(encoded, [(grid == CellState.FLAG.num()).astype(np.float32)], axis=0)
+            encoded = np.append(encoded, [self.flagged.astype(np.float32)], axis=0)  # type: ignore
 
         return encoded
 
@@ -229,7 +240,6 @@ class DQL:
         flags_allowed: bool,
         save_model: bool,
         env_args: List = [],
-        env_kwargs: dict = {},
     ):
         """
 
@@ -254,12 +264,13 @@ class DQL:
         self._flags_allowed = flags_allowed
         self._save_model = save_model
 
-        self._env = MinesweepperEnv(*env_args, flags_allowed=flags_allowed, **env_kwargs)
+        seed = 42
 
-        self._set_rnd_seed()
+        self._env = MinesweeperEnv(*env_args, rnd_seed=seed, flags_allowed=flags_allowed)
+
+        self._set_rnd_seed(seed)
 
         self._n_actions = self._env.n_actions
-        self._dim_obs_space = self._env.obs_dim
 
         self._policy_net = ConvolutionalNet(flags_allowed)
         self._target_net = ConvolutionalNet(flags_allowed)
@@ -270,7 +281,7 @@ class DQL:
         self._steps_taken = 0
         self._episodes_ran = 0
 
-        self._flagging_prob = self._env._n_mines / (self._env._width * self._env._height)
+        self._flagging_prob = self._env._n_mines / (self._env._width * self._env._height) if flags_allowed else 0.0
 
         self._plotter = Plotter()
 
@@ -299,8 +310,7 @@ class DQL:
         """Updates the target net to match the policy net"""
         self._target_net.load_state_dict(self._policy_net.state_dict())
 
-    def _set_rnd_seed(self):
-        seed = 42
+    def _set_rnd_seed(self, seed: int):
         torch.manual_seed(seed)
         random.seed(seed)
         np.random.seed(seed)
@@ -308,31 +318,41 @@ class DQL:
     def _select_action(self, state: torch.Tensor):
         """Chooses an action in the given state using an epsilon greedy strategy."""
         if np.random.random() < self._epsilon(self._steps_taken):
-            # Take random action
+            # Choose random action
 
-            unopened_cells = state.squeeze(0)[1]
-            viable_xy = unopened_cells.nonzero()
-            action_xy = viable_xy[np.random.choice(len(viable_xy))]
-            x = int(action_xy[1].item())
-            y = int(action_xy[0].item())
+            not_numbered_cells = state.squeeze(0)[1].bool()
 
-            if self._flags_allowed and np.random.random() < self._flagging_prob:
-                ind = self._env.actions.index((Op.FLAG, x, y))  # type: ignore
+            if self._flags_allowed:
+                flags = state.squeeze(0)[2].bool()
+                unopened_coords = torch.logical_and(not_numbered_cells, flags.logical_not()).nonzero()
             else:
-                ind = self._env.actions.index((Op.OPEN, x, y))  # type: ignore
+                unopened_coords = not_numbered_cells.nonzero()
 
+            if self._env._n_actions_taken != 0 and np.random.random() < self._flagging_prob:
+                act = Action.FLAG
+            else:
+                act = Action.OPEN
+
+            action_coords = unopened_coords[np.random.choice(len(unopened_coords))]
+            x = int(action_coords[1].item())
+            y = int(action_coords[0].item())
+            ind = self._env.actions.index(Interaction(x, y, act))
             return torch.tensor([[ind]], dtype=torch.int32, device=self._device)
 
         # Choose the action that maximises the future rewards according to the policy network
         with torch.no_grad():
             output: torch.Tensor = self._policy_net(state).squeeze(0)
 
-        mask_not_unopened = state.squeeze(0)[1].bool().logical_not_().flatten()
-
-        if self._flags_allowed:
-            mask_not_unopened = torch.cat((mask_not_unopened, mask_not_unopened))
-
-        output.masked_fill_(mask_not_unopened, float("-inf"))
+        numbered = state.squeeze(0)[1].bool().logical_not().flatten()
+        mask = numbered
+        if self._flags_allowed:  # Need to also add mask for flag actions
+            flags = state.squeeze(0)[2].bool().flatten()
+            flag_mask = torch.logical_or(numbered, flags)
+            open_mask = torch.logical_or(numbered, flags)
+            if self._env._n_actions_taken == 0:  # Can't flag on the first step
+                flag_mask = torch.ones(len(flags), dtype=torch.bool)
+            mask = torch.cat((open_mask, flag_mask))
+        output.masked_fill_(mask, float("-inf"))
         return output.max(0).indices.view(1, 1)
 
     def _optim_batch(self, memory: Memory):
@@ -362,7 +382,7 @@ class DQL:
         loss_fn.backward()
         self._optimizer.step()
 
-    @exit_env
+    @exit_training
     def train(self):
         """Trains the model"""
         memory = Memory()
@@ -404,7 +424,7 @@ class DQL:
                 if terminated or truncated:
                     # Time to stop the fun
                     episode_scores.append(cum_rew)
-                    episode_clicks.append(self._env._clicks)
+                    episode_clicks.append(self._env._n_actions_taken)
                     self._plotter.update(episode_scores)
                     break
 
@@ -417,7 +437,7 @@ class DQL:
 class Plotter:
     def __init__(self):
         plt.ion()
-        self.mav = [0.0 for _ in range(50)]
+        self.mav = []
 
     def finalise(self):
         plt.ioff()
@@ -434,6 +454,10 @@ class Plotter:
         if len(scores) > 50:
             mav = scores[-50:]
             mav = sum(mav) / len(mav)
+
+            if len(self.mav) == 0:
+                self.mav = [mav for _ in range(50)]
+
             self.mav.append(mav)
 
             plt.plot(self.mav)

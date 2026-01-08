@@ -3,7 +3,6 @@
 import os
 from typing import Annotated, Any
 import typer
-from .utils import get_gamestate
 
 
 def run_solver(solver: Any, tries: int):
@@ -43,8 +42,7 @@ def train_dql(episodes: episodes_type = 5000, flags: flags_type = False, save: s
     lr = 0.0003
     w_update_interval = 300
 
-    env_args = []  # [9, 9, 10]
-    env_kwargs = {"state": get_gamestate(1)}
+    env_args = [9, 9, 10]
 
     agent = DQL(
         episodes,
@@ -56,7 +54,6 @@ def train_dql(episodes: episodes_type = 5000, flags: flags_type = False, save: s
         flags,
         save,
         env_args=env_args,
-        env_kwargs=env_kwargs,
     )
 
     agent.train()

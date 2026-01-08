@@ -1,8 +1,8 @@
 import unittest
 from unittest.mock import patch
-from minesweeper_solver.minefield import CellState
 from minesweeper_solver.solver import SolverBase, SolverNaive, SolverRandom
 from minesweeper_solver.utils import get_gamestate
+from minesweeper import CellState
 
 
 class TestSolverBase(unittest.TestCase):
