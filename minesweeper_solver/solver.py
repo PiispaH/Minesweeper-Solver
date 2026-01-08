@@ -7,7 +7,7 @@ import numpy as np
 from numpy.typing import NDArray
 import torch
 from .DQL import ConvolutionalNet
-from .minefield import CellState, SmileyState, MineField
+from .minefield import CellState, MineField, SmileyState
 
 
 class SolverBase:

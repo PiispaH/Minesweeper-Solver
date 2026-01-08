@@ -1,29 +1,29 @@
 from collections import namedtuple
 from datetime import datetime
-from enum import Enum
 from functools import wraps
 from itertools import product
 import os
 import random
-from typing import Callable, List, Union
+from typing import Callable, List, Tuple, Union
 import matplotlib.pyplot as plt
+from minesweeper import Action, CellState, GameState, Interaction, MinesweeperHeadless
 import numpy as np
 from numpy.typing import NDArray
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from minesweeper import CellState, Action, Interaction, GameState, MinesweeperHeadless
 
 
-def exit_env(func):
+def exit_training(func):
 
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         try:
             func(self, *args, **kwargs)
-        finally:
-            self._env.close_env()
+        except (Exception, KeyboardInterrupt) as e:
+            self.save_model()
+            raise e
 
     return wrapper
 
@@ -62,7 +62,7 @@ class MinesweeperEnv:
         # These change
         self._grid = 9 * np.ones((height, width), dtype=np.int64)
         self._visible = 9 * np.ones((height, width), dtype=np.int64)
-        self._clicks = 0
+        self._n_actions_taken = 0
 
     @property
     def unopened(self) -> NDArray:
@@ -76,8 +76,8 @@ class MinesweeperEnv:
     def gamestate(self) -> GameState:
         return self._ms.gamestate
 
-    def take_action(self, act: Interaction):
-        """Takes the specified action and returns the resulting information"""
+    def take_action(self, act: Interaction) -> Tuple[int, int]:
+        """Takes the specified action and returns the state of the affected cell before and after"""
         if act.action not in self._available_actions:
             raise ValueError(f"inproper action: {act.action}")
 
@@ -92,7 +92,7 @@ class MinesweeperEnv:
             self._ms.make_interaction(act)
 
         if self.gamestate == GameState.LOST:
-            return None, cell_before, CellState.MINE
+            return cell_before, CellState.MINE.num()
 
         cell_before = self._visible[act.y][act.x]
 
@@ -102,19 +102,19 @@ class MinesweeperEnv:
 
         cell_after = self._visible[act.y][act.x]
 
-        return self._encode_state(), cell_before, cell_after
+        return cell_before, cell_after
 
     def reset(self):
         """Restarts the game."""
         self._ms._new_game()
-        self._clicks = 0
+        self._n_actions_taken = 0
         self._grid.fill(CellState.UNOPENED.num())
         self._visible.fill(CellState.UNOPENED.num())
         self._game_state = GameState.PLAYING
         return self._encode_state()
 
     def step(self, action_ind: int):
-        """Makes the given action and calculate the reward.d
+        """Makes the given action and calculate the reward
 
         Logic for the reward:
 
@@ -123,7 +123,7 @@ class MinesweeperEnv:
         Win gets 100 points
         """
 
-        self._clicks += 1
+        self._n_actions_taken += 1
 
         reward = -0.5
 
@@ -132,15 +132,18 @@ class MinesweeperEnv:
         x = action.x
         y = action.y
 
-        next_state, cell_before, cell_after = self.take_action(action)
-
+        cell_before, cell_after = self.take_action(action)
+        next_state = self._encode_state()
         if cell_after == cell_before:
-            raise Exception(f"Useless selection! x={x}, y={y}, this shouldn't be possible.")
+            raise Exception(
+                f"Useless selection: x={x}, y={y}, act={act} on cell {cell_before}."
+                f"Happened on action Nr. {self._n_actions_taken}."
+            )
 
         if cell_before == CellState.FLAG and act == Action.FLAG:
-            raise Exception(f"Tried to reflag x={x}, y={y}, this shouldn't be possible.")
+            raise Exception(f"Tried to deflag x={x}, y={y}, this shouldn't be possible.")
 
-        if cell_after not in (cell_before, CellState.MINEDEATH, CellState.FLAG):
+        if cell_after not in (cell_before, CellState.MINE, CellState.FLAG):
             # Reward for opening a usefull cell
             reward += 1.0
 
@@ -156,11 +159,12 @@ class MinesweeperEnv:
             reward += 20.0
         elif self.gamestate == GameState.LOST:
             terminated = True
+            next_state = None
             reward -= 10.0
 
         # Check if truncated
         truncated = False
-        if self._clicks == self._height * self._width - self._n_mines:
+        if self._n_actions_taken == self._height * self._width - self._n_mines:
             truncated = True
 
         return next_state, reward, terminated, truncated
@@ -236,7 +240,6 @@ class DQL:
         flags_allowed: bool,
         save_model: bool,
         env_args: List = [],
-        env_kwargs: dict = {},
     ):
         """
 
@@ -261,9 +264,11 @@ class DQL:
         self._flags_allowed = flags_allowed
         self._save_model = save_model
 
-        self._env = MinesweeperEnv(*env_args, rnd_seed=42, flags_allowed=flags_allowed)
+        seed = 42
 
-        self._set_rnd_seed()
+        self._env = MinesweeperEnv(*env_args, rnd_seed=seed, flags_allowed=flags_allowed)
+
+        self._set_rnd_seed(seed)
 
         self._n_actions = self._env.n_actions
 
@@ -276,7 +281,7 @@ class DQL:
         self._steps_taken = 0
         self._episodes_ran = 0
 
-        self._flagging_prob = self._env._n_mines / (self._env._width * self._env._height)
+        self._flagging_prob = self._env._n_mines / (self._env._width * self._env._height) if flags_allowed else 0.0
 
         self._plotter = Plotter()
 
@@ -305,8 +310,7 @@ class DQL:
         """Updates the target net to match the policy net"""
         self._target_net.load_state_dict(self._policy_net.state_dict())
 
-    def _set_rnd_seed(self):
-        seed = 42
+    def _set_rnd_seed(self, seed: int):
         torch.manual_seed(seed)
         random.seed(seed)
         np.random.seed(seed)
@@ -314,31 +318,41 @@ class DQL:
     def _select_action(self, state: torch.Tensor):
         """Chooses an action in the given state using an epsilon greedy strategy."""
         if np.random.random() < self._epsilon(self._steps_taken):
-            # Take random action
+            # Choose random action
 
-            unopened_cells = state.squeeze(0)[1]
-            viable_xy = unopened_cells.nonzero()
-            action_xy = viable_xy[np.random.choice(len(viable_xy))]
-            x = int(action_xy[1].item())
-            y = int(action_xy[0].item())
+            not_numbered_cells = state.squeeze(0)[1].bool()
 
-            if self._flags_allowed and np.random.random() < self._flagging_prob:
-                ind = self._env.actions.index(Interaction(x, y, Action.FLAG))  # type: ignore
+            if self._flags_allowed:
+                flags = state.squeeze(0)[2].bool()
+                unopened_coords = torch.logical_and(not_numbered_cells, flags.logical_not()).nonzero()
             else:
-                ind = self._env.actions.index(Interaction(x, y, Action.OPEN))  # type: ignore
+                unopened_coords = not_numbered_cells.nonzero()
 
+            if self._env._n_actions_taken != 0 and np.random.random() < self._flagging_prob:
+                act = Action.FLAG
+            else:
+                act = Action.OPEN
+
+            action_coords = unopened_coords[np.random.choice(len(unopened_coords))]
+            x = int(action_coords[1].item())
+            y = int(action_coords[0].item())
+            ind = self._env.actions.index(Interaction(x, y, act))
             return torch.tensor([[ind]], dtype=torch.int32, device=self._device)
 
         # Choose the action that maximises the future rewards according to the policy network
         with torch.no_grad():
             output: torch.Tensor = self._policy_net(state).squeeze(0)
 
-        mask_not_unopened = state.squeeze(0)[1].bool().logical_not_().flatten()
-
-        if self._flags_allowed:
-            mask_not_unopened = torch.cat((mask_not_unopened, mask_not_unopened))
-
-        output.masked_fill_(mask_not_unopened, float("-inf"))
+        numbered = state.squeeze(0)[1].bool().logical_not().flatten()
+        mask = numbered
+        if self._flags_allowed:  # Need to also add mask for flag actions
+            flags = state.squeeze(0)[2].bool().flatten()
+            flag_mask = torch.logical_or(numbered, flags)
+            open_mask = torch.logical_or(numbered, flags)
+            if self._env._n_actions_taken == 0:  # Can't flag on the first step
+                flag_mask = torch.ones(len(flags), dtype=torch.bool)
+            mask = torch.cat((open_mask, flag_mask))
+        output.masked_fill_(mask, float("-inf"))
         return output.max(0).indices.view(1, 1)
 
     def _optim_batch(self, memory: Memory):
@@ -368,7 +382,7 @@ class DQL:
         loss_fn.backward()
         self._optimizer.step()
 
-    # @exit_env
+    @exit_training
     def train(self):
         """Trains the model"""
         memory = Memory()
@@ -410,7 +424,7 @@ class DQL:
                 if terminated or truncated:
                     # Time to stop the fun
                     episode_scores.append(cum_rew)
-                    episode_clicks.append(self._env._clicks)
+                    episode_clicks.append(self._env._n_actions_taken)
                     self._plotter.update(episode_scores)
                     break
 
@@ -423,7 +437,7 @@ class DQL:
 class Plotter:
     def __init__(self):
         plt.ion()
-        self.mav = [0.0 for _ in range(50)]
+        self.mav = []
 
     def finalise(self):
         plt.ioff()
@@ -440,6 +454,10 @@ class Plotter:
         if len(scores) > 50:
             mav = scores[-50:]
             mav = sum(mav) / len(mav)
+
+            if len(self.mav) == 0:
+                self.mav = [mav for _ in range(50)]
+
             self.mav.append(mav)
 
             plt.plot(self.mav)

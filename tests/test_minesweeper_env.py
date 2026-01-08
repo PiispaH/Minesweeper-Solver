@@ -1,8 +1,7 @@
 import unittest
+from minesweeper import Action, CellState, Interaction
 import numpy as np
 from minesweeper_solver.DQL import Action, MinesweeperEnv
-from minesweeper_solver.minefield import CellState
-from minesweeper import CellState, Interaction, Action
 
 
 class TestMinesweeperEnv(unittest.TestCase):
@@ -27,17 +26,17 @@ class TestMinesweeperEnv(unittest.TestCase):
         self.assertEqual(self.env._n_mines, self.m)
 
     def test_opening_cells_and_flagging(self):
-        _, before, after = self.env.take_action(Interaction(1, 0, Action.OPEN))
-        self.assertEqual(before, CellState.UNOPENED)
+        before, after = self.env.take_action(Interaction(1, 0, Action.OPEN))
+        self.assertTrue(before == CellState.UNOPENED)
         self.assertEqual(after, CellState.CELL_0)
         self.assertEqual(self.env._visible[0][1], CellState.CELL_0)
 
         self.assertEqual(self.env._visible[2][0], CellState.UNOPENED)
-        _, before, after = self.env.take_action(Interaction(0, 2, Action.FLAG))
+        before, after = self.env.take_action(Interaction(0, 2, Action.FLAG))
         self.assertEqual(before, CellState.UNOPENED)
         self.assertTrue(self.env._visible[2][0] == CellState.FLAG == after)
 
-        _, before, after = self.env.take_action(Interaction(0, 2, Action.FLAG))
+        before, after = self.env.take_action(Interaction(0, 2, Action.FLAG))
         self.assertEqual(before, CellState.FLAG)
         self.assertEqual(self.env._visible[2][0], CellState.UNOPENED)
 
@@ -53,7 +52,7 @@ class TestMinesweeperEnv(unittest.TestCase):
 class TestMinesweeperEnvGamePlay(unittest.TestCase):
     """Class for testing that the gameplay through the environment is consistent"""
 
-    def test_encode_state(self):
+    def test_step(self):
         self.env = MinesweeperEnv(9, 9, 10, rnd_seed=42)
 
         expected = [[[x for _ in range(9)] for _ in range(9)] for x in (0, 1)]
@@ -62,9 +61,13 @@ class TestMinesweeperEnvGamePlay(unittest.TestCase):
 
         _1 = 1 / 8
         _2 = 2 / 8
-        _3 = 3 / 8
 
-        self.env.take_action(Interaction(0, 0, Action.OPEN))
+        next_state, reward, terminated, truncated = self.env.step(
+            self.env.actions.index((Interaction(0, 0, Action.OPEN)))
+        )
+        self.assertEqual(reward, 0.5)
+        self.assertTrue(not terminated)
+        self.assertTrue(not truncated)
         expected = [
             [
                 [0.0, 0.0, 0.0, 0.0, 0.0, _1, 0.0, 0.0, 0.0],
@@ -89,13 +92,20 @@ class TestMinesweeperEnvGamePlay(unittest.TestCase):
                 [1, 1, 1, 1, 1, 1, 1, 1, 1],
             ],
         ]
-        encoded = self.env._encode_state()
-        self.assertTrue(np.allclose(encoded, expected))
+        self.assertIsNotNone(next_state)
+        self.assertTrue(np.allclose(next_state, expected))  # type:ignore
 
         # Should not be a valid action
-        self.assertRaises(ValueError, lambda: self.env.take_action(Interaction(-1, -1, Action.NEW_GAME)))
+        self.assertRaises(
+            ValueError, lambda: self.env.step(self.env.actions.index((Interaction(-1, -1, Action.NEW_GAME))))
+        )
 
-        self.env.take_action(Interaction(0, 8, Action.OPEN))
+        next_state, reward, terminated, truncated = self.env.step(
+            self.env.actions.index((Interaction(0, 8, Action.OPEN)))
+        )
+        self.assertEqual(reward, 0.5)
+        self.assertTrue(not terminated)
+        self.assertTrue(not truncated)
         expected = [
             [
                 [0.0, 0.0, 0.0, 0.0, 0.0, _1, 0.0, 0.0, 0.0],
@@ -120,10 +130,15 @@ class TestMinesweeperEnvGamePlay(unittest.TestCase):
                 [0, 0, 0, 0, 0, 0, 0, 1, 1],
             ],
         ]
-        encoded = self.env._encode_state()
-        self.assertTrue(np.allclose(encoded, expected))
+        self.assertIsNotNone(next_state)
+        self.assertTrue(np.allclose(next_state, expected))  # type:ignore
 
-        self.env.take_action(Interaction(8, 0, Action.OPEN))
+        next_state, reward, terminated, truncated = self.env.step(
+            self.env.actions.index((Interaction(8, 0, Action.OPEN)))
+        )
+        self.assertEqual(reward, 0.5)
+        self.assertTrue(not terminated)
+        self.assertTrue(not truncated)
         expected = [
             [
                 [0.0, 0.0, 0.0, 0.0, 0.0, _1, 0.0, _1, 0.0],
@@ -148,9 +163,14 @@ class TestMinesweeperEnvGamePlay(unittest.TestCase):
                 [0, 0, 0, 0, 0, 0, 0, 1, 1],
             ],
         ]
-        encoded = self.env._encode_state()
-        self.assertTrue(np.allclose(encoded, expected))
+        self.assertIsNotNone(next_state)
+        self.assertTrue(np.allclose(next_state, expected))  # type:ignore
 
         # Opening a mine
-        state, *_ = self.env.take_action(Interaction(0, 2, Action.OPEN))
-        self.assertIsNone(state)
+        next_state, reward, terminated, truncated = self.env.step(
+            self.env.actions.index((Interaction(0, 2, Action.OPEN)))
+        )
+        self.assertEqual(reward, -10.5)
+        self.assertTrue(terminated)
+        self.assertIsNone(next_state)
+        self.assertTrue(not truncated)
