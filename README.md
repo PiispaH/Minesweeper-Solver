@@ -36,7 +36,8 @@ This solver randomly clicks on cells.
 
 This solver makes decisions based on 3x3 subgrids. If it determines that all the unopened cells
 in a 3x3 subgrid are mines it flags them, if it thinks that all of them are safe, it opens them.
-If it can't deduct anymore safe or flaggable cells, it opens the lowest probability cell in the grid.
+If it can't deduct anymore safe or flaggable cells, it opens a cell that has the lowest probability
+of uncovering a mine.
 
 ### DQL:
 
