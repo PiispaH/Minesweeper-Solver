@@ -1,6 +1,7 @@
 import unittest
-from minesweeper_solver.minefield import CellState, MineField, SmileyState
+from minesweeper_solver.minefield import MineField, SmileyState
 from minesweeper_solver.utils import get_gamestate
+from minesweeper import CellState
 
 
 class TestMineField(unittest.TestCase):
