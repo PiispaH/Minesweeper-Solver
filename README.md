@@ -9,7 +9,7 @@ inherit from the base class and implement only the `_step()` method, that contai
 
 Clone the repository and run
 ```
-pip install .
+pip install -e .
 ```
 with a fresh virtual environment to install the dependencies.
 Also follow [these](https://pytorch.org/get-started/locally/) instructions to install pytorch.
