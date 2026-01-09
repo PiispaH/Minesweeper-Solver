@@ -14,7 +14,7 @@ def run_solver(solver: Any, tries: int):
         solver.quit()
 
 
-app = typer.Typer()
+app = typer.Typer(pretty_exceptions_show_locals=False)
 
 
 episodes_type = Annotated[int, typer.Argument(help="The number of episodes to perform in the training.")]
@@ -68,31 +68,31 @@ tries_type = Annotated[int, typer.Argument(help="The amount of games to play at 
 @app.command()
 def run_dql(
     model_filepath: model_filepath_type = os.path.join("models", "model_no_flags.pt"),
-    tries: tries_type = 1,
+    tries: tries_type = 5,
 ):
     """Runs the trained DQL model solver"""
     from minesweeper_solver.solver import SolverDQL
 
-    solver = SolverDQL(model_filepath, width=9, height=9, mines=10)
-    run_solver(solver, tries)
+    solver = SolverDQL(9, 9, 10, tries, 0.1, filepath=model_filepath)
+    solver.run()
 
 
 @app.command()
-def run_random(tries: tries_type = 1):
+def run_random(tries: tries_type = 5):
     """Runs the random solver"""
     from minesweeper_solver.solver import SolverRandom
 
-    solver = SolverRandom()
-    run_solver(solver, tries)
+    solver = SolverRandom(30, 16, 99, tries, 0.1)
+    solver.run()
 
 
 @app.command()
-def run_naive(tries: tries_type = 1):
+def run_naive(tries: tries_type = 5):
     """Runs the naive solver"""
     from minesweeper_solver.solver import SolverNaive
 
-    solver = SolverNaive()
-    run_solver(solver, tries)
+    solver = SolverNaive(30, 16, 99, tries, 0.1)
+    solver.run()
 
 
 if __name__ == "__main__":

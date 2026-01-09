@@ -1,61 +1,85 @@
-import time
-import random
-import os
-import torch
 from itertools import product
-from typing import Set, Tuple, Union
+import os
+from random import choice, randint
+from time import time
+from typing import Set, Tuple
 import numpy as np
 from numpy.typing import NDArray
-from minesweeper_solver.DQL import ConvolutionalNet
-from minesweeper import Minesweeper, Action, Interaction, GameState, CellState
+import torch
+from .DQL import ConvolutionalNet
+from minesweeper import CellState
+from .minefield import MineField, SmileyState
 
 
-class SolverBase(Minesweeper):
+class SolverBase:
+    """Base class for different solvers"""
 
-    def __init__(
-        self, width: int, height: int, n_mines: int, tries: int, action_delay=0.0, rnd_seed: int | None = None
-    ):
-        super().__init__(width, height, n_mines, rnd_seed)
+    def __init__(self, width: int = 30, height: int = 16, mines: int = 99, state: str = "", headless: bool = False):
+        # If nothin given, go with expert board.
+        if state:
+            self._mf = MineField(headless, state=state)
+        else:
+            self._mf = MineField(headless, width, height, mines)
 
-        if rnd_seed is not None:
-            random.seed(rnd_seed)
+        self._headless = headless
 
-        self._tries = tries
-        self.fps = 60
+    def _open_cell(self, x: int, y: int):
+        """Opens the cell with the given indices"""
+        self._mf.open_cell(x, y)
 
-        self._delay = action_delay
-        self._next_action_time = 0.0
+    def _flag_cell(self, x: int, y: int):
+        """Flags the cell with the given indices"""
+        self._mf.flag_cell(x, y)
 
-    def _get_interaction(self):
-        ui_action = super()._get_interaction()
-        if ui_action is not None and ui_action.action == Action.EXIT:
-            # Makes it possible to exit the program during execution
-            return Interaction(-1, -1, Action.EXIT)
+    def _check_if_won(self):
+        return self._mf.get_gamestate() == SmileyState.WIN
 
-        now = time.time()
-        if now < self._next_action_time:
-            return None
+    def _check_if_lost(self):
+        return self._mf.get_gamestate() == SmileyState.LOST
 
-        self._next_action_time = now + self._delay
+    def _new_game(self):
+        self._mf.restart()
+        self._open_cell(self._mf.width // 2, self._mf.height // 2)
 
-        if self._tries > 0:
-            if self.gamestate != GameState.LOST:
-                return self.logic()
-            else:
-                self._tries -= 1
-                return Interaction(-1, -1, Action.NEW_GAME)
+    def run(self, max_tries: int) -> float:
+        """Starts up the solver
 
-        return Interaction(-1, -1, Action.EXIT)
+        Args:
+            max_tries: The amount of games the solver will play before quitting. No limit with value 0.
+        """
+        self._open_cell(self._mf.width // 2, self._mf.height // 2)
 
-    def logic(self) -> Union[Interaction, None]:
+        tries = 0
+        start = time()
+        while True:
+            if tries == max_tries:
+                print("Didn't win this time.")
+                return 0.0
+
+            self._step()
+
+            if self._check_if_lost():
+                tries += 1
+                start = time()
+                self._new_game()
+            elif self._check_if_won():
+                print("Win!!!")
+                return time() - start
+
+    def _step(self):
+        """This method should be overwritten to provide the solver logic"""
         raise NotImplementedError
+
+    def quit(self):
+        self._mf.end_session()
 
 
 class SolverRandom(SolverBase):
-    def logic(self) -> Union[Interaction, None]:
-        x, y = random.randint(0, 29), random.randint(0, 15)
 
-        return Interaction(x, y, Action.OPEN)
+    def _step(self):
+        """Just randomly clicks"""
+
+        self._open_cell(randint(0, self._mf.width), randint(0, self._mf.height))
 
 
 class SolverNaive(SolverBase):
@@ -64,54 +88,21 @@ class SolverNaive(SolverBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._no_need_to_check = set()  # A set of indices that contain no information anymore
-        self._odds = [1.0]
-        self._actions = []
-        self._visible_grid = np.ones((self._height, self._width), dtype=np.int64)
-        self._start = time.time()
-
-    def _get_interaction(self):
-        """This reimplementation first exhausts the known safe actions and then looks for more"""
-        if bool(len(self._actions)):
-            return self._actions.pop()
-        return super()._get_interaction()
+        self._current_grid = self._mf.get_grid()
+        self._odds = 1
 
     def _new_game(self):
         super()._new_game()
-        print("\n")
-        self._no_need_to_check.clear()
-        self._actions = []
-        self._odds = [1.0]
-        self._start = time.time()
+        self._no_need_to_check = set()
+        self._current_grid = self._mf.get_grid()
+        self._odds = 1
+        print()
 
-    def _handle_loss(self):
-        print(f"With overall odds of getting this far {self._odds[-2]:.3f}")
-
-    def _handle_win(self):
-        super()._handle_win()
-        print(f"With overall odds {self._odds[-1]:.3f}")
-        print(f"With gametime: {time.time() - self._start:.3f}s")
-
-    def logic(self) -> Union[Interaction, None]:
-        """Looks at 3x3 neighbourhoods to open or flag, if that is not possible, opens the safest cell by chance."""
-        if self.gamestate == GameState.WON:
-            return None
-
-        self._visible_grid = np.array([[value.num() for value in row] for row in self._ui_grid])  # type: ignore
-
-        vals = np.unique(self._visible_grid)
-
-        if len(vals) == 1 and vals[0] == CellState.UNOPENED:
-            return Interaction(self._width // 2, self._height // 2, Action.OPEN)
-
-        certain_safe, certain_minefields, maybe = self._informative_numbered_cells()
-        self._handle_all_mines(certain_minefields)
-        self._handle_safe_cells(certain_safe)
-
-        if len(self._actions) == 0:
-            self._select_the_safest_bet(maybe)
-
-        act = self._actions.pop()
-        return act
+    def _check_if_won(self):
+        won = super()._check_if_won()
+        if won:
+            print(f"Odds of winning this game: {self._odds*100:.2f}%")
+        return won
 
     def _informative_numbered_cells(self):
         """Returns the indices of cells with values 1-8 that have larger amount of unopened near than their value."""
@@ -119,7 +110,7 @@ class SolverNaive(SolverBase):
         certain_bombs = set()
         maybe = set()
 
-        for y, row in enumerate(self._visible_grid):
+        for y, row in enumerate(self._current_grid):
             for x, c in enumerate(row):
                 if (x, y) in self._no_need_to_check:
                     continue
@@ -147,21 +138,18 @@ class SolverNaive(SolverBase):
             lowest = min(ratio, lowest, key=lambda x: x[0])
 
         if lowest[1] == -1:
-            raise ValueError("Could not figure out the lowest probability of a mine.")
+            raise ValueError
 
         unopened = list(self._get_nbr_inds_of_types(*lowest[1:], CellState.UNOPENED))
-        rndm = random.choice(unopened)
+        rndm = choice(unopened)
         print(f"With {lowest[0]:.3f} probability of failure, opening cell {rndm}")
-
-        ind = len(self._odds)
-        self._odds.append((1 - lowest[0]) * self._odds[ind - 1])
-
-        self._actions.append(Interaction(*rndm, Action.OPEN))
+        self._odds *= 1 - lowest[0]
+        self._open_cell(*rndm)
 
     def _neighbourhood_mine_ratio(self, x: int, y: int) -> float:
         """The naive likelyhood of a random click on a neighbour ending up as a mine"""
 
-        cell_value = self._visible_grid[y][x]
+        cell_value = self._current_grid[y][x]
 
         if cell_value == 0 or 8 < cell_value:
             raise ValueError(f"Cannot compute the mine ratio near cell at x={x}, y={y}")
@@ -197,10 +185,10 @@ class SolverNaive(SolverBase):
             i = x + dx
             j = y + dy
 
-            if -1 in (i, j) or i == self._width or j == self._height:
+            if -1 in (i, j) or i == self._mf.width or j == self._mf.height:
                 value = CellState.WALL.num()
             else:
-                value = self._visible_grid[y + dy][x + dx]
+                value = self._current_grid[y + dy][x + dx]
 
             nbs[dy + 1][dx + 1] = value
 
@@ -218,7 +206,7 @@ class SolverNaive(SolverBase):
         for x, y in certain_inds:
             for i, j in self._get_nbr_inds_of_types(x, y, CellState.UNOPENED):
                 if (i, j) not in flagged:
-                    self._actions.append(Interaction(i, j, Action.FLAG))
+                    self._flag_cell(i, j)
                     flagged.add((i, j))
 
     def _handle_safe_cells(self, certain_inds: Set[Tuple[int, int]]):
@@ -231,14 +219,27 @@ class SolverNaive(SolverBase):
         for x, y in certain_inds:
             safe_inds = self._get_nbr_inds_of_types(x, y, CellState.UNOPENED)
             for i, j in safe_inds:
-                self._actions.append(Interaction(i, j, Action.OPEN))
+                self._open_cell(i, j)
+                if self._check_if_lost():
+                    raise SystemExit(f"Lost due to a mistake near cell x={i} y={j}.")
+
+    def _step(self):
+        """Looks at 3x3 neighbourhoods to open or flag, if that is not possible, opens the safest cell by chance."""
+
+        self._current_grid = self._mf.get_grid()
+        possibly_safe, certain_minefields, maybe = self._informative_numbered_cells()
+        self._handle_all_mines(certain_minefields)
+        self._handle_safe_cells(possibly_safe)
+        changed = bool(possibly_safe | certain_minefields)
+        if not changed:
+            self._select_the_safest_bet(maybe)
 
 
 class SolverDQL(SolverBase):
     """A reinforcement learning model trained with a 9x9 grid with 10 mines, aka beginner mode."""
 
-    def __init__(self, *args, filepath="", **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, filepath, **kwargs):
+        super().__init__(**kwargs)
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"File {filepath} not found. Train a DQL model first.")
 
@@ -247,15 +248,10 @@ class SolverDQL(SolverBase):
 
         self._cnn = ConvolutionalNet(self._flags_allowed)
         self._cnn.load_state_dict(state["state_dict_policy"])
-        self._actions = [(x, y) for y, x in product(range(self._width), range(self._height))]
+        self._actions = [(x, y) for y, x in product(range(kwargs["width"]), range(kwargs["height"]))]
 
-    def logic(self):
-        if self.gamestate == GameState.WON:
-            return None
-
-        self._visible_grid = np.array([[value.num() for value in row] for row in self._ui_grid])  # type: ignore
-
-        grid = np.array(self._visible_grid)
+    def _step(self):
+        grid = np.array(self._mf.get_grid())
         encoded = np.zeros((2, grid.shape[0], grid.shape[1]), dtype=np.float32)
         encoded[0] = np.where(grid < 9, grid / 8.0, 0)
         encoded[1] = (grid == CellState.UNOPENED.num()).astype(np.float32)
@@ -273,8 +269,8 @@ class SolverDQL(SolverBase):
 
         try:
             action = self._actions[a]
-            return Interaction(action[0], action[1], Action.OPEN)
+            self._open_cell(action[0], action[1])
         except IndexError:
             n_cells = grid.shape[0] * grid.shape[1]
             action = self._actions[a - n_cells]
-            return Interaction(action[0], action[1], Action.FLAG)
+            self._flag_cell(action[0], action[1])
