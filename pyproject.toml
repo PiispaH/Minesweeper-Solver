@@ -6,7 +6,7 @@ dependencies = [
     "numpy",
     "typer",
     "matplotlib",
-    "Minesweeper @ git+ssh://git@github.com/PiispaH/Minesweeper.git",
+    "Minesweeper@git+https://github.com/PiispaH/Minesweeper.git",
 ]
 
 [tool.black]
