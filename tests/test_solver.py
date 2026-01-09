@@ -206,7 +206,7 @@ class TestSolverNaive2(unittest.TestCase):
 
         _, _, inds = solver._informative_numbered_cells()
 
-        with patch("minesweeper_solver.solver.random.choice") as mock_random, patch(
+        with patch("minesweeper_solver.solver.choice") as mock_random, patch(
             "minesweeper_solver.solver.SolverBase._open_cell"
         ) as mock_open:
             mock_random.return_value = (3, 7)
