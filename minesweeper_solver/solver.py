@@ -1,16 +1,17 @@
-import time
-import random
-import os
-import torch
 from itertools import product
+import os
+import random
+import time
 from typing import Set, Tuple, Union
+from minesweeper import Action, CellState, GameState, Interaction, Minesweeper
 import numpy as np
 from numpy.typing import NDArray
+import torch
 from minesweeper_solver.DQL import ConvolutionalNet
-from minesweeper import Minesweeper, Action, Interaction, GameState, CellState
 
 
 class SolverBase(Minesweeper):
+    """Base class for minesweeper solver implementations"""
 
     def __init__(
         self, width: int, height: int, n_mines: int, tries: int, action_delay=0.0, rnd_seed: int | None = None
@@ -20,7 +21,8 @@ class SolverBase(Minesweeper):
         if rnd_seed is not None:
             random.seed(rnd_seed)
 
-        self._tries = tries
+        self._max_tries = tries
+        self._current_attempt_n = 0
         self.fps = 60
 
         self._delay = action_delay
@@ -38,11 +40,11 @@ class SolverBase(Minesweeper):
 
         self._next_action_time = now + self._delay
 
-        if self._tries > 0:
+        if self._current_attempt_n < self._max_tries:
             if self.gamestate != GameState.LOST:
                 return self.logic()
             else:
-                self._tries -= 1
+                self._current_attempt_n += 1
                 return Interaction(-1, -1, Action.NEW_GAME)
 
         return Interaction(-1, -1, Action.EXIT)
@@ -52,8 +54,10 @@ class SolverBase(Minesweeper):
 
 
 class SolverRandom(SolverBase):
+    """Randomly opens cells"""
+
     def logic(self) -> Union[Interaction, None]:
-        x, y = random.randint(0, 29), random.randint(0, 15)
+        x, y = random.randint(0, self._width - 1), random.randint(0, self._height - 1)
 
         return Interaction(x, y, Action.OPEN)
 
@@ -77,7 +81,6 @@ class SolverNaive(SolverBase):
 
     def _new_game(self):
         super()._new_game()
-        print("\n")
         self._no_need_to_check.clear()
         self._actions = []
         self._odds = [1.0]
@@ -108,6 +111,9 @@ class SolverNaive(SolverBase):
         self._handle_safe_cells(certain_safe)
 
         if len(self._actions) == 0:
+            # if self._mines_left == 0:  # All mines cleared, just open the rest
+            #     self._handle_safe_cells(maybe)
+            # else:
             self._select_the_safest_bet(maybe)
 
         act = self._actions.pop()
