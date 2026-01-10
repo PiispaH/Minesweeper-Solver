@@ -111,10 +111,10 @@ class SolverNaive(SolverBase):
         self._handle_safe_cells(certain_safe)
 
         if len(self._actions) == 0:
-            # if self._mines_left == 0:  # All mines cleared, just open the rest
-            #     self._handle_safe_cells(maybe)
-            # else:
-            self._select_the_safest_bet(maybe)
+            if self._mines_left == 0:  # All mines cleared, just open the rest
+                self._handle_safe_cells(maybe)
+            else:
+                self._select_the_safest_bet(maybe)
 
         act = self._actions.pop()
         return act
