@@ -26,6 +26,11 @@ save_type = Annotated[bool, typer.Option(help="Whether to save the model.")]
 def train_dql(episodes: episodes_type = 5000, flags: flags_type = False, save: save_type = True):
     """Trains the DQL model"""
 
+    try:
+        import torch
+    except ImportError as e:
+        print("PyTorch not installed")
+        return
     import matplotlib.pyplot as plt
     import numpy as np
     from minesweeper_solver.DQL import DQL
@@ -71,7 +76,12 @@ def run_dql(
     tries: tries_type = 5,
 ):
     """Runs the trained DQL model solver"""
-    from minesweeper_solver.solver import SolverDQL
+    try:
+        import torch
+    except ImportError as e:
+        print("PyTorch not installed")
+        return
+    from minesweeper_solver.dql_solver import SolverDQL
 
     solver = SolverDQL(9, 9, 10, tries, 0.1, filepath=model_filepath)
     solver.run()

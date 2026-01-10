@@ -6,13 +6,13 @@ import os
 import random
 from typing import Callable, List, Tuple, Union
 import matplotlib.pyplot as plt
-from minesweeper import Action, CellState, GameState, Interaction, MinesweeperHeadless
 import numpy as np
 from numpy.typing import NDArray
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from minesweeper import Action, CellState, GameState, Interaction, MinesweeperHeadless
 
 
 def exit_training(func):

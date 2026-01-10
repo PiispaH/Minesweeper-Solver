@@ -1,6 +1,6 @@
 import unittest
-from minesweeper import Action, CellState, Interaction
 import numpy as np
+from minesweeper import Action, CellState, Interaction
 from minesweeper_solver.DQL import Action, MinesweeperEnv
 
 

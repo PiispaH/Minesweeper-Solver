@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
-from minesweeper import Action, CellState, Interaction
 import numpy as np
+from minesweeper import Action, CellState, Interaction
 from minesweeper_solver.solver import SolverNaive, SolverRandom
 
 _U = CellState.UNOPENED.num()
