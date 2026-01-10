@@ -2,31 +2,10 @@
 
 Contains solvers and a framework for easily building new ones. The SolverBase -class takes care of
 starting a new game and handling the interactions with it. At its simplest, a new solver can just
-inherit from the base class and implement only the `_step()` method, that contains the solver logic.
+inherit from the base class and implement only the `logic` method, that contains the solver logic.
 
-
-## Usage
-
-Clone the repository and run
-```
-pip install -e .
-```
-with a fresh virtual environment to install the dependencies.
-Also follow [these](https://pytorch.org/get-started/locally/) instructions to install pytorch.
-
-Run the command
-```
-msolver --help
-```
-for information on the available commands, and
-```
-msolver command --help
-```
-for information on individual commands.
 
 ## Solvers
-
-Currently there are three solvers:
 
 ### Random:
 
@@ -43,3 +22,23 @@ of uncovering a mine.
 
 This solver is is powered by a reinforcement learning model. DQL is used to train a model to select
 the safest cell to open.
+
+
+## Usage
+
+Clone the repository and run
+```
+pip install -e .
+```
+with a fresh virtual environment to install the dependencies.
+If you want to run or train the reinforcement learning models, follow [these](https://pytorch.org/get-started/locally/) instructions to install pytorch.
+
+Run the command
+```
+msolver --help
+```
+for information on the available commands, and
+```
+msolver command --help
+```
+for information on individual commands.
