@@ -114,14 +114,7 @@ class MinesweeperEnv:
         return self._encode_state()
 
     def step(self, action_ind: int):
-        """Makes the given action and calculate the reward
-
-        Logic for the reward:
-
-        Every click on a cell that isn't unopened gives minus one point.
-        Every click on a unopened cell gets one point.
-        Win gets 100 points
-        """
+        """Makes the given action and calculates the corresponding reward"""
 
         self._n_actions_taken += 1
 
@@ -149,7 +142,10 @@ class MinesweeperEnv:
 
         if cell_after == CellState.FLAG:
             # Should see here if it was a valid choice, hardcoded punishment for now
-            reward -= 5.0
+            if self._ms.get_grid()[y][x] == CellState.MINE:
+                reward += 5.0
+            else:
+                reward -= 5.0
 
         # Check if terminated
         terminated = next_state is None
