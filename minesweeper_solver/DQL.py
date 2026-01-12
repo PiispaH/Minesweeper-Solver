@@ -118,15 +118,20 @@ class MinesweeperEnv:
 
         self._n_actions_taken += 1
 
-        reward = -0.5
+        reward = -1.0
 
         action = self.actions[action_ind]
         act = action.action
         x = action.x
         y = action.y
 
+        nbr_cells = [self._visible[x][y] for x, y in self._ms._nbr_inds(x, y)]
+        nbr_unique = np.unique(nbr_cells)
+
         cell_before, cell_after = self.take_action(action)
         next_state = self._encode_state()
+        terminated = next_state is None
+
         if cell_after == cell_before:
             raise Exception(
                 f"Useless selection: x={x}, y={y}, act={act} on cell {cell_before}."
@@ -136,23 +141,31 @@ class MinesweeperEnv:
         if cell_before == CellState.FLAG and act == Action.FLAG:
             raise Exception(f"Tried to deflag x={x}, y={y}, this shouldn't be possible.")
 
-        if cell_after not in (cell_before, CellState.MINE, CellState.FLAG):
-            # Reward for opening a usefull cell
-            reward += 1.0
+        if act == Action.OPEN and cell_after not in (cell_before, CellState.MINE):
+            if len(nbr_unique) == 1:
+                # Random guess
+                reward -= 5.0
+            else:
+                # Atleast somewhat informed choice
+                reward += 2.0
 
         if cell_after == CellState.FLAG:
-            # Should see here if it was a valid choice, hardcoded punishment for now
-            if self._ms.get_grid()[y][x] == CellState.MINE:
-                reward += 5.0
+            if self._n_mines < len(np.transpose(next_state[2].nonzero())):
+                # Flagged too many cells
+                terminated = True
+                reward -= 20.0
+            elif self._ms.get_grid()[y][x] == CellState.MINE:
+                # Flag placed correctly
+                reward += 2.0
             else:
+                # Incorrectly flagged cell
                 reward -= 5.0
 
-        # Check if terminated
-        terminated = next_state is None
+        # Check if win or loss
         if self.gamestate == GameState.WON:
             print("BIG WIN !!!")
             terminated = True
-            reward += 20.0
+            reward += 10.0
         elif self.gamestate == GameState.LOST:
             terminated = True
             next_state = None
@@ -388,7 +401,6 @@ class DQL:
             state = self._env.reset()
             state = torch.tensor(state, dtype=torch.float32, device=self._device).unsqueeze(0)
 
-            terminated, truncated = False, False
             cum_rew = 0
             for _ in range(self._env._width * self._env._height):
                 # Select an action, take it and store the transition
