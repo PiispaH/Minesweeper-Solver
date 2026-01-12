@@ -35,17 +35,17 @@ def train_dql(episodes: episodes_type = 5000, flags: flags_type = False, save: s
     import numpy as np
     from minesweeper_solver.DQL import DQL
 
-    batch_size = 128
+    batch_size = 256
 
     def epsilon(step: int) -> float:
         start = 0.9
-        end = 0.1
-        tc = 1000
+        end = 0.01
+        tc = 3000
         return end + (start - end) * np.exp(-step / tc)
 
     gamma = 0.99
     lr = 0.0003
-    w_update_interval = 300
+    w_update_interval = 500
 
     env_args = [9, 9, 10]
 

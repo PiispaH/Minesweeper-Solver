@@ -426,15 +426,15 @@ class DQL:
                     print("steps taken:", self._steps_taken)
                     self._update_target_net()
 
-                # Get some training in
-                self._optim_batch(memory)
-
                 if terminated or truncated:
                     # Time to stop the fun
                     episode_scores.append(cum_rew)
                     episode_clicks.append(self._env._n_actions_taken)
                     self._plotter.update(episode_scores)
                     break
+
+            # Get some training in
+            self._optim_batch(memory)
 
             self._episodes_ran += 1
 
@@ -457,17 +457,18 @@ class Plotter:
         plt.title("Result")
         plt.xlabel("Episode")
         plt.ylabel("Score")
-        plt.plot(scores)
+        plt.plot(scores, label="Episode score")
 
-        if len(scores) > 50:
-            mav = scores[-50:]
+        if len(scores) > 100:
+            mav = scores[-100:]
             mav = sum(mav) / len(mav)
 
             if len(self.mav) == 0:
-                self.mav = [mav for _ in range(50)]
+                self.mav = [mav for _ in range(100)]
 
             self.mav.append(mav)
 
-            plt.plot(self.mav)
+            plt.plot(self.mav, label="100 episode moving average")
 
+        plt.legend(loc=1)
         plt.pause(0.001)
